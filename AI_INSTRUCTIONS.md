@@ -17,7 +17,7 @@ When documentation disagrees with code, inspect executable behavior and update s
 
 The repository is an Express API foundation for a clinic appointment project. It has generic users, authentication, sessions, media, metadata, constants, and a database health endpoint. Clinic models, migrations, validators, typed inputs, and appointment ownership helpers are prepared under versioned modules. Clinic business routes, appointment slots, booking rules, and medical-record workflows remain unimplemented. The approved roadmap and contracts are documented in [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md).
 
-Use the existing Express, Joi, Sequelize, Passport/JWT, Zod, i18n, and storage patterns. Native ESM is enabled through `package.json` and TypeScript's NodeNext configuration. There is no NestJS, TypeORM, Redis application integration, queue, Socket.IO server, or generated API documentation. The startup log reports HTTP only.
+Use the existing Express, Joi, Sequelize, Passport/JWT, Zod, i18n, and storage patterns. Native ESM is enabled through `package.json` and TypeScript's NodeNext configuration. Swagger UI is mounted at `/api/docs`, with its OpenAPI JSON at `/api/docs/openapi.json`; keep `src/docs/openapi.ts` aligned with implemented routes. There is no NestJS, TypeORM, Redis application integration, queue, or Socket.IO server.
 
 ## Feature structure and request flow
 
@@ -91,3 +91,7 @@ Both Docker startup scripts run migrations and seeding on each start. Seeding re
 ## Clinic persistence and contracts
 
 See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md). Initialize associations explicitly through `initializeAssociations()`; it is idempotent and never synchronizes tables. Preserve domain history with restrictive foreign keys and active flags. UTC appointment timestamps and booked snapshots are distinct from branch-local schedule intervals. Money stays decimal strings. Joi normalized output still is not written back to requests; future controllers/services must explicitly normalize validated input. New clinic HTTP routes must remain unmounted until real services exist.
+
+## Incompatible database histories
+
+The migration runner validates recorded names against the current registry before up/down changes. Status is read-only, including on an empty database. Use `npm run migrate:status` to diagnose conflicts. Unregistered names such as `003-clinic-domain` indicate a separate schema lineage, not a missing-column fix. Do not change already-applied migration files or remove SequelizeMeta entries. Preserve the database and use a new database unless a data-preserving compatibility migration has been explicitly chosen. Source CLI scripts use `node --import tsx` to avoid deprecated ts-node loader warnings.

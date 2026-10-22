@@ -13,6 +13,7 @@ import { constantRouter } from './modules/constant/constant.routes.js';
 import { userRouterV1 } from './modules/user/v1/user.routes.js';
 import { authRouterV1 } from './modules/auth/v1/auth.routes.js';
 import { mediaRouterV1 } from './modules/media/v1/media.routes.js';
+import { docsRouter } from './modules/docs/docs.routes.js';
 
 import { errorMiddleware } from './middleware/error.middleware.js';
 import { notFoundMiddleware } from './middleware/not-found.middleware.js';
@@ -34,6 +35,7 @@ export function initializeApp(app: express.Application) {
 
     app.use('/', homeRouter);
     app.use('/health', healthRouter);
+    app.use('/api/docs', docsRouter);
     app.use('/api/constant', constantRouter);
     app.use('/api/v1/users', userRouterV1);
     app.use('/api/v1/auth', authRouterV1);

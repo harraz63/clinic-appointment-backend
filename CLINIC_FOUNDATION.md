@@ -134,3 +134,9 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 - npm run test:integration passed six PostgreSQL/HTTP scenarios (seven runner tests including the parent), including guarded rollback for oversized refresh tokens. Its container was removed afterward; no configured application database or seed was used.
 - Both Compose configuration checks passed with the existing obsolete-version warning. Root documentation links were checked against local files.
 - Host checks used Node 24.19.0 and PostgreSQL 16 Alpine; the Docker Node 20 production image was not built or deployed. Provider-backed Google authentication remains unverified.
+
+## Migration history recovery
+
+A database recorded with an earlier schema lineage (for example 002-add-clinic-roles and 003-clinic-domain) can contain incompatible columns such as dayOfWeek and separate appointment date/time fields. Migration 003 cannot safely reuse those tables. The runner now rejects unregistered names before up/down changes. Use npm run migrate:status for read-only diagnosis; it also works without creating SequelizeMeta on a fresh database. Use a new empty database or prepare an explicit compatibility migration. Never remove bookkeeping, rename one column blindly, or roll back existing data to force installation. Historical migration files remain unchanged. Source CLI commands use node --import tsx to avoid ts-node loader warnings.
+
+Follow-up verification: lint, build, ten unit tests, seven isolated PostgreSQL/HTTP scenarios (eight runner tests including their parent), and both Compose checks passed. Compiled API startup, metadata and database health also passed against the newly initialized local database. Existing database contents and historical migration files were preserved.

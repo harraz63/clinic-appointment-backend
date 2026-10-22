@@ -1,6 +1,7 @@
 import { DataTypes, QueryTypes } from 'sequelize';
 import { sequelize } from '../db-config.js';
 import { migrations } from './migrations.js';
+import { assertCompatibleHistory } from './migration-history.js';
 
 const command = process.argv[2] ?? 'up';
 
@@ -15,7 +16,6 @@ async function ensureMigrationsTable() {
 }
 
 async function getExecutedMigrations(): Promise<Set<string>> {
-    const tableName = 'SequelizeMeta';
     const tableExistsResult = await sequelize.query<{ exists: string | null }>(
         'SELECT to_regclass(\'public."SequelizeMeta"\') AS exists;',
         { type: QueryTypes.SELECT }
@@ -23,7 +23,6 @@ async function getExecutedMigrations(): Promise<Set<string>> {
     const tableExists = Boolean(tableExistsResult[0]?.exists);
 
     if (!tableExists) {
-        await ensureMigrationsTable();
         return new Set<string>();
     }
 
@@ -36,6 +35,8 @@ async function getExecutedMigrations(): Promise<Set<string>> {
 
 async function runUpMigrations() {
     const executed = await getExecutedMigrations();
+    assertCompatibleHistory(executed, migrations);
+    await ensureMigrationsTable();
 
     for (const migration of migrations) {
         if (executed.has(migration.name)) continue;
@@ -50,6 +51,7 @@ async function runUpMigrations() {
 
 async function runDownMigration() {
     const executed = await getExecutedMigrations();
+    assertCompatibleHistory(executed, migrations);
     const appliedMigrations = migrations.filter((migration) => executed.has(migration.name));
     const lastMigration = appliedMigrations[appliedMigrations.length - 1];
 
@@ -67,18 +69,29 @@ async function runDownMigration() {
 
 async function main() {
     try {
+        if (!['up', 'down', 'status'].includes(command)) {
+            throw new Error('Unknown migration command. Use up, down, or status.');
+        }
         await sequelize.authenticate();
 
-        if (command === 'down') {
+        if (command === 'status') {
+            const executed = await getExecutedMigrations();
+            for (const name of executed) console.log('Applied: ' + name);
+            assertCompatibleHistory(executed, migrations);
+            for (const migration of migrations) {
+                if (!executed.has(migration.name)) console.log('Pending: ' + migration.name);
+            }
+        } else if (command === 'down') {
             await runDownMigration();
         } else {
             await runUpMigrations();
         }
 
-        process.exit(0);
     } catch (error) {
         console.error('Migration failed:', error);
-        process.exit(1);
+        process.exitCode = 1;
+    } finally {
+        await sequelize.close();
     }
 }
 

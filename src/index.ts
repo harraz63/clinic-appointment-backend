@@ -18,5 +18,5 @@ await passportConfig();
 initializeApp(app);
 
 server.listen(PORT, () => {
-    infoLogger.info(`Server running on port ${PORT}`);
+    infoLogger.info(`Server running on port ${PORT}. Swagger docs: http://localhost:${PORT}/api/docs`);
 });

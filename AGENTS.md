@@ -8,7 +8,7 @@ These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTU
 - The current application uses TypeScript, native ES modules, Express 4, Sequelize 6, and PostgreSQL. Docker targets Node.js 20 and provisions PostgreSQL 16 and Redis 7.
 - Implemented HTTP areas are authentication, administrator user management, self-profile management, public media upload/retrieval, constants, metadata, and database health.
 - Roles are `admin`, `doctor`, and `customer`. `Roles.USER` is a compatibility key with value `customer` because migration 001 imports it. Public registration forbids role, verification, and blocking fields and always creates customers.
-- Redis is present in Compose and `.env.example`, but the application has no Redis client or runtime integration. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. There is no Swagger/OpenAPI endpoint, notification worker, or implemented OTP flow.
+- Redis is present in Compose and `.env.example`, but the application has no Redis client or runtime integration. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker or implemented OTP flow.
 
 ## Implementation rules
 
@@ -65,3 +65,7 @@ Keep these four documents synchronized with executable behavior. Handoffs should
 - Legacy `user` accounts convert to `customer`; other inherited roles block migration for manual resolution. Role rollback refuses doctor accounts or refresh tokens over 255 characters, restores customers to `user`, and narrows token storage. Removed FCM values cannot be restored.
 - Persist bilingual business text as JSONB `{ ar, en }`; return both languages. Money uses DECIMAL(12,2) and decimal strings. Booking services must snapshot price, currency, duration, timezone, and branch.
 - Schedules use branch-local times; appointments use UTC instants. No availability engine, overlap protection, status workflow, or notification delivery exists yet.
+
+## Migration history safety
+
+Source migration and seed scripts use the existing tsx runtime through `node --import tsx`; compiled commands remain JavaScript. `npm run migrate:status` (or `migrate:status:prod`) inspects applied/pending migrations without creating tables. Up, down, and status reject unregistered migration names before schema changes. A database from a different clinic schema requires a separate new database or an explicit compatibility migration; never delete bookkeeping or drop existing data to bypass this check.

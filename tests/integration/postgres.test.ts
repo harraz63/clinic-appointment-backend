@@ -33,6 +33,10 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     const { Roles } = await import('../../src/constants/roles.js');
 
     await t.test('registered migrations install a fresh schema and skip previously applied entries', async () => {
+        const status = execFileSync(process.execPath,
+            ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', 'status'], { env: process.env, encoding: 'utf8' });
+        assert.match(status, /Pending: 003-clinic-foundation/);
+        assert.deepEqual(await qi.showAllTables(), []);
         for (let i = 0; i < 2; i++) execFileSync(process.execPath,
             ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', 'up'], { env: process.env, stdio: 'pipe' });
         const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta" ORDER BY name');
@@ -42,6 +46,27 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const [cash] = await sequelize.query('SELECT name FROM payment_methods WHERE code = \'cash\'');
         assert.equal(cash.length, 1);
         assert.equal((cash[0] as { name: { en: string } }).name.en, 'Cash at Clinic');
+    });
+
+    await t.test('incompatible migration histories stop up/down/status without changing tables or bookkeeping', async () => {
+        const marker = '003-clinic-domain';
+        await sequelize.query('INSERT INTO "SequelizeMeta" (name) VALUES (:name)', { replacements: { name: marker } });
+        const before = await qi.showAllTables();
+        try {
+            for (const command of ['up', 'down', 'status']) {
+                assert.throws(() => execFileSync(process.execPath,
+                    ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', command], { env: process.env, stdio: 'pipe' }),
+                (error: unknown) => {
+                    const failure = error as { status: number; stderr: Buffer };
+                    return failure.status === 1 && failure.stderr.toString().includes('Unrecognized migration history: 003-clinic-domain');
+                });
+            }
+            assert.deepEqual(await qi.showAllTables(), before);
+            const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta"');
+            assert.equal(rows.length, 4);
+        } finally {
+            await sequelize.query('DELETE FROM "SequelizeMeta" WHERE name = :name', { replacements: { name: marker } });
+        }
     });
 
     const { initializeAssociations } = await import('../../src/database/associations.js');

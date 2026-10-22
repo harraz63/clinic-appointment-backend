@@ -20,7 +20,7 @@ Compose also provisions Redis; the API has no Redis integration.
 Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default.
 ```
 
-`src/index.ts` creates Express and an HTTP server, authenticates the database connection, calls Passport configuration, installs middleware/routes, and starts listening on `env.PORT`. Startup database initialization authenticates only; it does not synchronize models, run migrations, or seed. The startup log reports the HTTP listener; no Socket.IO server exists. There are no shutdown signal handlers for closing the server and database pool.
+`src/index.ts` creates Express and an HTTP server, authenticates the database connection, calls Passport configuration, installs middleware/routes, and starts listening on `env.PORT`. Startup database initialization authenticates only; it does not synchronize models, run migrations, or seed. Swagger UI is served at `/api/docs`, its OpenAPI document is served at `/api/docs/openapi.json`, and the startup log reports the docs URL. No Socket.IO server exists. There are no shutdown signal handlers for closing the server and database pool.
 
 Both Docker entry scripts run migration and seed commands before starting the API. Development uses source commands; production uses compiled JavaScript. Compose waits for PostgreSQL and Redis health checks before starting the app, while the app's own `/health` checks only PostgreSQL.
 
@@ -44,6 +44,8 @@ Some current handlers directly access models, and media routes have no authentic
 | --- | --- | --- |
 | `/` | Application name and version | Public |
 | `/health` | Database connectivity and process metadata | Public |
+| `/api/docs` | Swagger UI for the implemented HTTP API | Public |
+| `/api/docs/openapi.json` | OpenAPI 3 document | Public |
 | `/api/constant` | Role constants | Public |
 | `/api/v1/auth` | Registration, login, refresh, logout, Google authentication, self-profile/password | Mixed public and authenticated routes |
 | `/api/v1/users` | User create/filter/read/update/delete | Authenticated `admin` |
@@ -105,3 +107,7 @@ Follow [AGENTS.md](./AGENTS.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md); 
 Migration 002 transactionally converts user to customer, retains admins, rejects unrelated legacy account roles, replaces the enum, widens refresh tokens to TEXT, and removes fcmToken. Rollback rejects doctor accounts or oversized refresh tokens, restores legacy roles, narrows token storage, and restores an empty nullable FCM column. Migration 003 transactionally creates branches, specialties, doctors, doctor_schedules, schedule_exceptions, appointments, payment_methods, payment_records, and notifications, with a bilingual cash method. Its rollback deletes these domain tables and data.
 
 Doctor profiles have one user, one branch, and one specialty. Appointments reference customer accounts, doctors, and their booked branch, with independent status and price/currency/duration/timezone snapshots. Schedule intervals are branch-local; appointment instants use PostgreSQL timezone-aware timestamps. Inbox notifications reference recipients. Associations initialize centrally without synchronization. JSONB bilingual content, DECIMAL money, foreign keys, indexes, and basic checks are prepared; business workflows remain absent.
+
+## Migration CLI safeguards
+
+The runner now rejects unregistered applied migration names before up/down mutations. `npm run migrate:status` and its compiled equivalent report history/pending names with SELECT queries only; status on an empty database creates no bookkeeping table. Source migration/rollback/seed scripts use the already-installed tsx runtime via node --import, replacing the deprecated ts-node loader. No historical migration definitions were edited. Different schema lineages require separate databases or an explicit compatibility migration.

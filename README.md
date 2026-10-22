@@ -16,7 +16,7 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
 
-Redis is provisioned in Docker Compose but is unused by the API. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. Node/tsx tests cover the foundation; Docker integration tests use an isolated PostgreSQL container. There is no Swagger/OpenAPI endpoint. See [known limitations](#known-limitations).
+Redis is provisioned in Docker Compose but is unused by the API. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. Swagger UI and an OpenAPI document describe the implemented HTTP API. Node/tsx tests cover the foundation; Docker integration tests use an isolated PostgreSQL container. See [known limitations](#known-limitations).
 
 ## Technology and repository structure
 
@@ -76,7 +76,7 @@ Use Node.js/npm and a reachable PostgreSQL database. Docker is optional for host
 
    Seeding overwrites the password of an existing account matching `SUPER_ADMIN_PROVIDER`. Check the database target before running it. `start:dev` alone neither migrates nor seeds.
 
-The default listener is `http://localhost:3000`. Check metadata at `/` and database health at `/health`. A healthy response confirms PostgreSQL connectivity, not the correctness of authentication or media integrations.
+The default listener is `http://localhost:3000`; startup logs include the Swagger UI URL. Open the API docs at `http://localhost:3000/api/docs` or fetch the OpenAPI JSON from `http://localhost:3000/api/docs/openapi.json`. Check metadata at `/` and database health at `/health`. A healthy response confirms PostgreSQL connectivity, not the correctness of authentication or media integrations.
 
 Source development uses `tsx`. Build with `npm run build`, then use `npm start` for the compiled API. Neither startup command applies migrations or seeds.
 
@@ -176,7 +176,7 @@ Access tokens preserve the existing **15-hour** lifetime, with consistent respon
 
 ## API endpoints
 
-Paths are relative to the API origin. `Authenticated` means a Bearer access token backed by an existing session. No Swagger UI is mounted.
+Paths are relative to the API origin. `Authenticated` means a Bearer access token backed by an existing session. Swagger UI is available at `/api/docs`; the OpenAPI JSON is at `/api/docs/openapi.json`.
 
 | Method | Path | Access | Purpose/input |
 | --- | --- | --- | --- |
@@ -231,6 +231,12 @@ Compiled equivalents are `npm run migrate:prod` and `npm run seed:prod`; they re
 
 Seeding creates a verified, unblocked admin if the configured provider is absent. If the provider exists, it resets its password and leaves role/flags unchanged. This applies even when that provider belongs to a non-admin user. Docker executes seeding on every app start.
 
+## Migration history conflicts
+
+Migration, rollback, and status commands reject recorded migration names absent from the current registry before changing the schema. Source migration/seed commands use the existing tsx runtime through node --import tsx, avoiding deprecated ts-node loader warnings; compiled production commands are unchanged.
+
+If a database records a different lineage such as 003-clinic-domain, its clinic tables may have different columns. A missing weekday error is one symptom of this mismatch. Check with npm run migrate:status. Preserve that database and use a new empty database, or prepare an explicit compatibility migration for its data. Do not delete SequelizeMeta entries, roll back unrelated migrations, or rename a single column to bypass the mismatch. Configure DB_URI for the intended new database, then run npm run migrate followed by npm run seed; seed resets the matching administrator password.
+
 ## Media storage
 
 The active media pipeline uses [src/storage/storage-factory.ts](./src/storage/storage-factory.ts). It accepts one in-memory file up to 50 MiB, based on the declared MIME type: JPEG, PNG, WebP, MP4, QuickTime, or PDF. Keys combine a timestamp and the original filename. There is no owner column or per-user media authorization.
@@ -253,6 +259,7 @@ These APIs provide public media, not protected clinical-document storage. The se
 | `npm start` | Runs `dist/index.js`; requires build output |
 | `npm run migrate` / `npm run migrate:prod` | Applies pending source/compiled migrations |
 | `npm run migrate:undo` / `npm run migrate:undo:prod` | Rolls back the last applied registered migration |
+| `npm run migrate:status` / `npm run migrate:status:prod` | Read-only applied/pending migration report; rejects incompatible history |
 | `npm run seed` / `npm run seed:prod` | Runs source/compiled seed, resetting the matching account password |
 | `npm run start:with-migrate` | Source migration command followed by compiled API; does not build or seed |
 | `npm run start:dev:with-migrate` | Source migrations, seed, and development API |
