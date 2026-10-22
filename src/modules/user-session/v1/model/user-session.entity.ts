@@ -1,5 +1,5 @@
 import { DataTypes, Model, Optional } from 'sequelize';
-import { sequelize } from "../../../../database/db-config.js";
+import { sequelize } from '../../../../database/db-config.js';
 import { UserModel } from '../../../user/v1/model/user.model.js';
 
 
@@ -8,7 +8,6 @@ export class UserSessionModel extends Model {
     declare id: string;
     declare userId: string;
     declare refreshToken?: string;
-    declare fcmToken?: string;
     declare expiresAt?: Date;
 
     declare readonly createdAt: Date;
@@ -34,13 +33,9 @@ UserSessionModel.init(
             onUpdate: 'CASCADE',
         },
         refreshToken: {
-            type: DataTypes.STRING,
+            type: DataTypes.TEXT,
             allowNull: true,
             unique: true, // uncomment if needed
-        },
-        fcmToken: {
-            type: DataTypes.STRING,
-            allowNull: true,
         },
         expiresAt: {
             type: DataTypes.DATE,

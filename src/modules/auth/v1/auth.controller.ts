@@ -43,7 +43,7 @@ export async function refreshTokenController(req: Request, res: Response): Promi
         data: {
             accessToken,
             refreshToken: newRefreshToken,
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+            expiresAt: accessToken.expiresAt
         }
     });
 }
@@ -51,7 +51,7 @@ export async function refreshTokenController(req: Request, res: Response): Promi
 export const googleWebAuth = passport.authenticate('google', { scope: ['profile', 'email'] });
 
 export const googleAuthCallback = [
-    passport.authenticate('google', { failureRedirect: '/' }),
+    passport.authenticate('google', { failureRedirect: '/', session: false }),
     async (req: Request, res: Response) => {
         if (!req.user) {
             throw new HttpResponseError(StatusCodes.UNAUTHORIZED, 'Google authentication failed');
@@ -110,6 +110,8 @@ export async function googleMobileAuthController(req: Request, res: Response): P
 
         }
 
+        if (user.isBlocked) throw new HttpResponseError(StatusCodes.FORBIDDEN, 'Account is blocked');
+
         const session = await UserSessionModel.create({
             userId: user.id
         });
@@ -129,7 +131,7 @@ export async function googleMobileAuthController(req: Request, res: Response): P
             }
         });
     } catch (error) {
-        errorLogger.error('Google authentication failed', error);
+        errorLogger.error('Google authentication failed');
         throw new HttpResponseError(
             StatusCodes.UNAUTHORIZED,
             'Google authentication failed'

@@ -5,6 +5,7 @@ import tseslint from 'typescript-eslint';
 
 /** @type {import("eslint").Linter.FlatConfig[]} */
 export default [
+    { ignores: ['dist/**', 'node_modules/**', 'logs/**'] },
     js.configs.recommended,
     // TypeScript recommended config
     ...tseslint.configs.recommended,
@@ -48,5 +49,9 @@ export default [
             'uploads/',
             'ecosystem.*.config.js',
         ],
+    },
+    {
+        files: ['tests/**/*.ts'],
+        languageOptions: { parserOptions: { project: null } },
     },
 ];

@@ -1,7 +1,7 @@
 // database.ts
 import { Sequelize } from 'sequelize';
 import { env } from '../config/env.js';
-import { debugLogger, errorLogger, infoLogger } from '../config/logger.config.js';
+import { errorLogger, infoLogger } from '../config/logger.config.js';
 import { exit } from 'process';
 
 function resolveDatabaseUrl() {
@@ -23,15 +23,15 @@ function resolveDatabaseUrl() {
 const DB_URL = resolveDatabaseUrl();
 
 export const sequelize = new Sequelize(DB_URL, {
-    logging: env.NODE_ENV === 'development' ? (msg) => debugLogger.debug(msg) : false,
+    logging: false,
 });
 
 export async function initializeDatabase() {
     try {
         await sequelize.authenticate();
-        infoLogger.info(`DB Connected to ${DB_URL}`);
+        infoLogger.info('Database connected');
     } catch (error) {
-        errorLogger.error('DB Connection Error:', error);
+        errorLogger.error('Database connection failed');
         exit(1);
     }
 }

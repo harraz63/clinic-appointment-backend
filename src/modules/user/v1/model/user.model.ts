@@ -1,6 +1,6 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../../database/db-config.js';
-import { Roles } from '../../../../constants/roles.js';
+import { Roles, Role } from '../../../../constants/roles.js';
 import { comparePasswords, hashPassword } from '../../../../utils/password.utils.js';
 import { generateAuthToken, generateRefreshToken } from '../../../../utils/token.utils.js';
 import { UserSessionModel } from '../../../user-session/v1/model/user-session.entity.js';
@@ -12,7 +12,7 @@ export class UserModel extends Model {
     declare provider: string;
     declare password?: string;
     declare name: string;
-    declare role: string;
+    declare role: Role;
     declare googleId?: string;
     declare isVerified: boolean;
     declare isBlocked: boolean;
@@ -20,6 +20,13 @@ export class UserModel extends Model {
     // timestamps
     declare readonly createdAt: Date;
     declare readonly updatedAt: Date;
+
+    // Password-inclusive scopes must never affect HTTP serialization.
+    public toJSON() {
+        const values = { ...this.get() };
+        delete values.password;
+        return values;
+    }
 
     // ---------- Instance methods ----------
     public generateAuthToken(sessionId: string) {

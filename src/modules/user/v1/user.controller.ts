@@ -1,6 +1,6 @@
 import { StatusCodes } from 'http-status-codes';
 import { Request, Response } from 'express';
-import { UserService } from './user.service.js';
+import { UserService, UserFilter } from './user.service.js';
 
 
 export async function createUserController(req: Request, res: Response): Promise<void> {
@@ -42,9 +42,9 @@ export async function deleteUserController(req: Request, res: Response): Promise
 export async function getUsersFilterController(req: Request, res: Response): Promise<void> {
     const { page, limit, ...filter } = req.query;
 
-    const data = await UserService.getUsersByFilter(filter, {
-        page: Number(page),
-        limit: Number(limit)
+    const data = await UserService.getUsersByFilter(filter as UserFilter, {
+        page: page === undefined ? 1 : Number(page),
+        limit: limit === undefined ? 10 : Number(limit)
     });
 
     res.status(StatusCodes.OK).json({

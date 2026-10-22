@@ -13,7 +13,7 @@ export const loginSchema = Joi.object({
 });
 
 export const registerSchema = userValidationSchema
-    .fork(['role', 'isVerified'], schema => schema.forbidden())
+    .fork(['role', 'isVerified', 'isBlocked'], schema => schema.forbidden())
     .keys({
         password: userValidationSchema.extract('password')
     });
@@ -46,7 +46,7 @@ export const changePasswordSchema = Joi.object({
 });
 
 export const updateMeSchema = userValidationSchema
-    .fork(['provider', 'password', 'role', 'isVerified'], schema => schema.forbidden())
+    .fork(['provider', 'password', 'role', 'isVerified', 'isBlocked'], schema => schema.forbidden())
     .keys({
         name: userValidationSchema.extract('name').optional(),
     });

@@ -1,8 +1,18 @@
 import { HttpResponseError } from '../../../utils/appError.js';
 import { StatusCodes } from 'http-status-codes';
 import { UserModel } from './model/user.model.js';
+import { Op, WhereOptions } from 'sequelize';
+import { Role } from '../../../constants/roles.js';
 import { isStrongPassword } from '../../../utils/password.utils.js';
 
+
+export interface UserFilter {
+    name?: string;
+    provider?: string;
+    role?: Role;
+    isVerified?: boolean;
+    isBlocked?: boolean;
+}
 
 interface PaginateOptions {
     page?: number;
@@ -66,25 +76,22 @@ export class UserService {
     }
 
     static async getUsersByFilter(
-        filter: any = {},
+        filter: UserFilter = {},
         options: PaginateOptions = {}
     ): Promise<PaginationResult> {
         const { page = 1, limit = 10 } = options;
         const skip = (Number(page) - 1) * Number(limit);
-        if (filter.name) {
-            filter.name = { $regex: new RegExp(filter.name, 'i') }; // Partial, case-insensitive match
-        }
-        if (filter.provider) {
-            filter.provider = { $regex: new RegExp(filter.provider, 'i') }; // Partial, case-insensitive match
-        }
+        const where: WhereOptions = { ...filter };
+        if (filter.name) where.name = { [Op.iLike]: '%' + filter.name + '%' };
+        if (filter.provider) where.provider = { [Op.iLike]: '%' + filter.provider + '%' };
 
         const [users, total] = await Promise.all([
             UserModel.findAll({
-                where: filter,
+                where,
                 offset: skip,
                 limit: Number(limit)
             }),
-            UserModel.count({ where: filter })
+            UserModel.count({ where })
         ]);
 
         if (!users.length) {

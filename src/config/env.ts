@@ -14,15 +14,12 @@ const envSchema = z.object({
     SUPER_ADMIN_PASSWORD: z.string().min(1, 'SUPER_ADMIN_PASSWORD must not be empty'),
     JWT_PRIVATE_KEY: z.string().min(1, 'JWT_PRIVATE_KEY must not be empty'),
     REFRESH_TOKEN_PRIVATE_KEY: z.string().min(1, 'REFRESH_TOKEN_PRIVATE_KEY must not be empty'),
-    GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID must not be empty'),
+    CLINIC_CURRENCY: z.string().regex(/^[A-Z]{3}$/).default('EGP'),
+    GOOGLE_AUTH_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     MOBILE_GOOGLE_CLIENT_ID: z.string().min(1, 'MOBILE_GOOGLE_CLIENT_ID must not be empty').optional(),
-    GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET must not be empty'),
-    GOOGLE_CALLBACK_URL: z.string().min(1, 'GOOGLE_CALLBACK_URL must not be empty'),
-    MAIL_HOST: z.string().min(1, 'MAIL_HOST must not be empty'),
-    MAIL_PORT: z.coerce.number().min(1).default(587),
-    MAIL_USER: z.string().min(1, 'MAIL_USER must not be empty'),
-    MAIL_PASS: z.string().min(1, 'MAIL_PASS must not be empty'),
-    MAIL_SECURE: z.string().min(1, 'MAIL_SECURE must not be empty'),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    GOOGLE_CALLBACK_URL: z.url().optional(),
     STORAGE_TYPE: z.enum(['local', 's3', 'r2']).default('local'),
     AWS_REGION: z.string().min(1, 'AWS_REGION must not be empty').optional(),
     S3_BUCKET: z.string().min(1, 'S3_BUCKET must not be empty').optional(),
@@ -43,6 +40,12 @@ const envSchema = z.object({
             });
         }
     };
+
+    if (data.GOOGLE_AUTH_ENABLED) {
+        requireField('GOOGLE_CLIENT_ID');
+        requireField('GOOGLE_CLIENT_SECRET');
+        requireField('GOOGLE_CALLBACK_URL');
+    }
 
     if (data.STORAGE_TYPE === 'local') {
         requireField('APP_URL');

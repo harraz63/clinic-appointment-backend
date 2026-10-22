@@ -12,7 +12,7 @@ export interface IAuthToken {
 }
 
 export const generateAuthToken = function (this: UserModel, sessionId: string): IAuthToken {
-    const expiresIn = 15 * 60 * 60; // 15 minutes in seconds
+    const expiresIn = 15 * 60 * 60; // Existing 15-hour access-token lifetime.
     const token = jwt.sign(
         { _id: this.id, role: this.role, sessionId },
         env.JWT_PRIVATE_KEY,

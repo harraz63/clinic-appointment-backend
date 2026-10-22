@@ -42,7 +42,7 @@ export const userValidationSchema = Joi.object({
 
 export const createUserSchema = userValidationSchema;
 export const updateUserSchema = userValidationSchema
-    .fork(['password', 'provider'], schema => schema.optional())
+    .fork(['password', 'provider', 'name'], schema => schema.optional())
     .append({
         id: JoiCustomValidateObjectId('ID', false)
     });

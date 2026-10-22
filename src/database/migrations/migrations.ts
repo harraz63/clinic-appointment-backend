@@ -1,10 +1,10 @@
 import { Migration } from './types.js';
-import { migrationName as migration001Name, up as migration001Up, down as migration001Down } from './001-initial-schema.js';
+import * as initial from './001-initial-schema.js';
+import * as roles from './002-clinic-roles.js';
+import * as clinic from './003-clinic-foundation.js';
 
-export const migrations: Migration[] = [
-    {
-        name: migration001Name,
-        up: migration001Up,
-        down: migration001Down,
-    },
-];
+export const migrations: Migration[] = [initial, roles, clinic].map(migration => ({
+    name: migration.migrationName,
+    up: migration.up,
+    down: migration.down,
+}));
