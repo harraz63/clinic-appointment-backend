@@ -10,7 +10,7 @@ const envSchema = z.object({
     DB_URI: z.url(),
     APP_NAME: z.string().min(1, 'APP_NAME must not be empty'),
     APP_VERSION: z.string().min(1, 'APP_VERSION must not be empty'),
-    SUPER_ADMIN_PROVIDER: z.string().min(1, 'SUPER_ADMIN_PROVIDER must not be empty'),
+    SUPER_ADMIN_PHONE: z.string().min(1, 'SUPER_ADMIN_PHONE must not be empty'),
     SUPER_ADMIN_PASSWORD: z.string().min(1, 'SUPER_ADMIN_PASSWORD must not be empty'),
     JWT_PRIVATE_KEY: z.string().min(1, 'JWT_PRIVATE_KEY must not be empty'),
     REFRESH_TOKEN_PRIVATE_KEY: z.string().min(1, 'REFRESH_TOKEN_PRIVATE_KEY must not be empty'),
@@ -20,6 +20,11 @@ const envSchema = z.object({
     S3_BUCKET: z.string().min(1, 'S3_BUCKET must not be empty').optional(),
     S3_PUBLIC_URL: z.string().min(1, 'S3_PUBLIC_URL must not be empty').optional(),
     APP_URL: z.string().min(1, 'APP_URL must not be empty').optional(),
+    REDIS_URL: z.url().default('redis://localhost:6379'),
+    OTP_HMAC_SECRET: z.string().optional(),
+    OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+    OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+    OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
     CLOUDFLARE_BUCKET_NAME: z.string().min(1, 'CLOUDFLARE_BUCKET_NAME must not be empty').optional(),
     CLOUDFLARE_PUBLIC_DOMAIN: z.string().min(1, 'CLOUDFLARE_PUBLIC_DOMAIN must not be empty').optional(),
     CLOUDFLARE_SECRET_ACCESS_KEY: z.string().min(1, 'CLOUDFLARE_SECRET_ACCESS_KEY must not be empty').optional(),
@@ -53,6 +58,7 @@ const envSchema = z.object({
         requireField('CLOUDFLARE_ACCOUNT_ID');
         requireField('CLOUDFLARE_ACCESS_KEY_ID');
     }
+
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

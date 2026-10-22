@@ -17,7 +17,7 @@ When documentation disagrees with code, inspect executable behavior and update s
 
 The repository is an Express API foundation for a clinic appointment project. It has generic users, authentication, sessions, media, metadata, constants, and a database health endpoint. Clinic models, migrations, validators, typed inputs, and appointment ownership helpers are prepared under versioned modules. Clinic business routes, appointment slots, booking rules, and medical-record workflows remain unimplemented. The approved roadmap and contracts are documented in [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md).
 
-Use the existing Express, Joi, Sequelize, Passport/JWT, Zod, i18n, and storage patterns. Native ESM is enabled through `package.json` and TypeScript's NodeNext configuration. Swagger UI is mounted at `/api/docs`, with its OpenAPI JSON at `/api/docs/openapi.json`; keep `src/docs/openapi.ts` aligned with implemented routes. There is no NestJS, TypeORM, Redis application integration, queue, or Socket.IO server.
+Use the existing Express, Joi, Sequelize, Passport/JWT, Zod, i18n, Redis, and storage patterns. Native ESM is enabled through `package.json` and TypeScript's NodeNext configuration. Swagger UI is mounted at `/api/docs`, with its OpenAPI JSON at `/api/docs/openapi.json`; keep `src/docs/openapi.ts` aligned with implemented routes. There is no NestJS, TypeORM, queue, or Socket.IO server.
 
 ## Feature structure and request flow
 
@@ -47,18 +47,19 @@ JSON success responses use the shared `{ status: 'success', data }` envelope thr
 
 - Use Roles: admin, doctor, customer. The compatibility key Roles.USER evaluates to customer; migration 001 remains executable without editing it.
 - Public registration forbids role, isVerified, and isBlocked. The registration service whitelists identity/password fields and forces customer. Self-profile validation forbids administrative fields.
+- Account identity is the normalized Egyptian `phone` field. Public customer registration stages a password hash in Redis until OTP verification; admin-created accounts are marked verified. OTP issuance endpoints currently return codes in `data.otp`; do not log OTPs.
 - Use auth for protected endpoints and obtain identity/session from the authenticated request. Session authentication and refresh enforce account blocking, session ownership, and session expiration. Missing sessions yield an expected 401.
 - Appointment access foundations live in appointment.permissions.ts: admins manage all, doctors view/confirm/complete/no-show their own, and customers view/cancel/reschedule their own. Cancellation/rescheduling policies and lifecycle transitions are future service rules.
 - Preserve bcrypt hashing through the user save hook. User serialization strips passwords even for password-inclusive scopes. Do not log credentials, users, tokens, connection URLs, or SQL values.
 - Access token responses retain token and expiresAt. Access tokens preserve the existing 15-hour lifetime; refresh tokens last seven days. Password changes save the new hash and revoke all sessions transactionally. Refresh rotation locks the session row so concurrent use of one refresh token yields at most one successful rotation.
-- Authentication uses the provider/password flow; Google authentication and its runtime configuration have been removed. Legacy Google IDs may remain in stored user rows and must not be deleted by an unrelated change.
+- Authentication uses phone/password with OTP-based registration, customer password recovery, and verified customer phone changes; Google authentication and its runtime configuration have been removed. Legacy Google IDs may remain in stored user rows and must not be deleted by an unrelated change.
 
 ## Configuration and integrations
 
 - Read new configuration through `env` in `src/config/env.ts`. Add schema validation, example settings, and README guidance together. For optional providers, validate required settings when that provider is selected.
 - `.env.example` uses Compose service names. Host development needs `localhost` for PostgreSQL; only the hostname `db` has a fallback in database configuration, not `postgres`.
-- SMTP and Google authentication configuration have been removed. `CLINIC_CURRENCY` defaults to `EGP`.
-- Compose provisions Redis and waits for its health check, but no application Redis client exists and `REDIS_URL` is absent from the Zod schema. Do not add ad hoc Redis usage as an incidental change.
+- SMTP, Google authentication, and SMS provider configuration have been removed. Keep OTP settings synchronized across `env.ts`, `.env.example`, and README. `CLINIC_CURRENCY` defaults to `EGP`.
+- Redis is initialized once through `src/config/redis.ts` and configured by `REDIS_URL`; it stores pending registrations and OTP state.
 - Firebase, Nodemailer, and session FCM handling have been removed. Notifications are prepared as database-backed inbox records only; no delivery or reminder worker exists.
 - Use Winston for new logs and sanitize error context. Existing authentication and database logs expose sensitive values and must not be copied into new code or documentation examples.
 
@@ -77,7 +78,7 @@ Use ordered migrations registered in `src/database/migrations/migrations.ts`; do
 
 The runner does not wrap migrations in a transaction automatically. Design new migrations for partial-failure recovery and use transactions where supported and appropriate. Verify changes against disposable data, including rollback when supported. The initial migration creates `pgcrypto`, users, sessions, and media; its rollback deletes the three application tables.
 
-Both Docker startup scripts run migrations and seeding on each start. Seeding resets the password for an existing matching provider without repairing its role, verification, or blocked status. Never describe this as create-only initialization or test it against a shared database without authorization.
+Both Docker startup scripts run migrations and seeding on each start. Seeding resets the password for an existing matching phone without repairing its role, verification, or blocked status. Never describe this as create-only initialization or test it against a shared database without authorization.
 
 ## Quality and handoff
 

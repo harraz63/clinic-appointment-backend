@@ -9,7 +9,13 @@ import {
     changePasswordController,
     getMeController,
     updateMeController,
-    deleteMeController
+    deleteMeController,
+    sendOtpController,
+    verifyRegistrationController,
+    forgotPasswordController,
+    resetPasswordController,
+    requestPhoneChangeController,
+    verifyPhoneChangeController
 } from './auth.controller.js';
 import {
     loginSchema,
@@ -17,7 +23,13 @@ import {
     refreshTokenSchema,
     logoutSchema,
     changePasswordSchema,
-    updateMeSchema
+    updateMeSchema,
+    sendOtpSchema,
+    verifyRegistrationSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
+    changePhoneSchema,
+    verifyPhoneChangeSchema
 } from './auth.validation.js';
 
 
@@ -26,6 +38,10 @@ export const authRouterV1 = express.Router();
 // Public routes
 authRouterV1.post('/login', validateRequest(loginSchema), loginController);
 authRouterV1.post('/register', validateRequest(registerSchema), registerController);
+authRouterV1.post('/send-otp', validateRequest(sendOtpSchema), sendOtpController);
+authRouterV1.post('/register/verify', validateRequest(verifyRegistrationSchema), verifyRegistrationController);
+authRouterV1.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPasswordController);
+authRouterV1.post('/reset-password', validateRequest(resetPasswordSchema), resetPasswordController);
 authRouterV1.post('/refresh-token', validateRequest(refreshTokenSchema), refreshTokenController);
 authRouterV1.post('/logout', validateRequest(logoutSchema), logoutController);
 
@@ -35,4 +51,6 @@ authRouterV1.use(auth);
 authRouterV1.patch('/password', validateRequest(changePasswordSchema), changePasswordController);
 authRouterV1.get('/me', getMeController);
 authRouterV1.patch('/me', validateRequest(updateMeSchema), updateMeController);
+authRouterV1.patch('/me/phone', validateRequest(changePhoneSchema), requestPhoneChangeController);
+authRouterV1.post('/me/phone/verify', validateRequest(verifyPhoneChangeSchema), verifyPhoneChangeController);
 authRouterV1.delete('/me', deleteMeController);

@@ -71,29 +71,61 @@ export const openapiDocument = {
         '/api/v1/auth/register': {
             post: {
                 tags: ['Authentication'],
-                summary: 'Register a customer account',
+                summary: 'Start customer registration and return a verification OTP',
                 requestBody: jsonRequest({
                     type: 'object',
-                    required: ['provider', 'name', 'password'],
+                    required: ['phone', 'name', 'password'],
                     properties: {
-                        provider: { type: 'string', description: 'Email address or phone number' },
+                        phone: { type: 'string', description: 'Egyptian mobile phone number' },
                         name: { type: 'string', minLength: 5, maxLength: 30 },
                         password: { type: 'string', format: 'password' },
                     },
                     additionalProperties: false,
                 }),
-                responses: { ...createdResponse, ...validationError },
+                responses: { '202': { description: 'OTP is returned in data.otp for verification' }, ...validationError },
+            },
+        },
+        '/api/v1/auth/send-otp': {
+            post: {
+                tags: ['Authentication'],
+                summary: 'Resend a registration or password reset OTP',
+                requestBody: jsonRequest({ type: 'object', required: ['phone', 'type'], properties: { phone: { type: 'string' }, type: { type: 'string', enum: ['register', 'resetPassword'] } }, additionalProperties: false }),
+                responses: { '202': { description: 'Returns data.otp when an eligible OTP is issued; otherwise data is null' }, ...validationError },
+            },
+        },
+        '/api/v1/auth/register/verify': {
+            post: {
+                tags: ['Authentication'],
+                summary: 'Verify signup OTP and create a customer account',
+                requestBody: jsonRequest({ type: 'object', required: ['phone', 'otp'], properties: { phone: { type: 'string' }, otp: { type: 'string', pattern: '^\\d{6}$' } }, additionalProperties: false }),
+                responses: successResponse,
+            },
+        },
+        '/api/v1/auth/forgot-password': {
+            post: {
+                tags: ['Authentication'],
+                summary: 'Request a customer password reset OTP by phone',
+                requestBody: jsonRequest({ type: 'object', required: ['phone'], properties: { phone: { type: 'string' } }, additionalProperties: false }),
+                responses: { '202': { description: 'Returns data.otp for an eligible customer; otherwise data is null' }, ...validationError },
+            },
+        },
+        '/api/v1/auth/reset-password': {
+            post: {
+                tags: ['Authentication'],
+                summary: 'Reset a customer password using an OTP',
+                requestBody: jsonRequest({ type: 'object', required: ['phone', 'otp', 'newPassword'], properties: { phone: { type: 'string' }, otp: { type: 'string', pattern: '^\\d{6}$' }, newPassword: { type: 'string', format: 'password' } }, additionalProperties: false }),
+                responses: successResponse,
             },
         },
         '/api/v1/auth/login': {
             post: {
                 tags: ['Authentication'],
-                summary: 'Log in with provider and password',
+                summary: 'Log in with phone and password',
                 requestBody: jsonRequest({
                     type: 'object',
-                    required: ['provider', 'password'],
+                    required: ['phone', 'password'],
                     properties: {
-                        provider: { type: 'string' },
+                        phone: { type: 'string' },
                         password: { type: 'string', format: 'password' },
                     },
                 }),
@@ -149,6 +181,24 @@ export const openapiDocument = {
                 responses: successResponse,
             },
         },
+        '/api/v1/auth/me/phone': {
+            patch: {
+                tags: ['Authentication'],
+                summary: 'Request a verified customer phone change',
+                security: secured,
+                requestBody: jsonRequest({ type: 'object', required: ['phone'], properties: { phone: { type: 'string' } }, additionalProperties: false }),
+                responses: { '202': { description: 'OTP is returned in data.otp; current phone remains active until verification' }, ...validationError },
+            },
+        },
+        '/api/v1/auth/me/phone/verify': {
+            post: {
+                tags: ['Authentication'],
+                summary: 'Verify and activate the pending customer phone number',
+                security: secured,
+                requestBody: jsonRequest({ type: 'object', required: ['otp'], properties: { otp: { type: 'string', pattern: '^\\d{6}$' } }, additionalProperties: false }),
+                responses: successResponse,
+            },
+        },
         '/api/v1/auth/password': {
             patch: {
                 tags: ['Authentication'],
@@ -181,7 +231,7 @@ export const openapiDocument = {
                 parameters: [
                     { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1 } },
                     { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1 } },
-                    { in: 'query', name: 'provider', schema: { type: 'string' } },
+                    { in: 'query', name: 'phone', schema: { type: 'string' } },
                     { in: 'query', name: 'name', schema: { type: 'string' } },
                     { in: 'query', name: 'role', schema: { type: 'string', enum: ['admin', 'doctor', 'customer'] } },
                     { in: 'query', name: 'isVerified', schema: { type: 'boolean' } },

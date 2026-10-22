@@ -7,9 +7,9 @@ import { sendSuccess } from '../../../shared/api-response.js';
 
 
 export async function loginController(req: Request, res: Response): Promise<void> {
-    const { provider, password } = req.body;
+    const { phone, password } = req.body;
 
-    const { user, accessToken, refreshToken } = await AuthService.login(provider, password);
+    const { user, accessToken, refreshToken } = await AuthService.login(phone, password);
 
     sendSuccess(res, {
         user: user.toJSON(),
@@ -19,8 +19,38 @@ export async function loginController(req: Request, res: Response): Promise<void
 }
 
 export async function registerController(req: Request, res: Response): Promise<void> {
-    const user = await AuthService.register(req.body);
-    sendSuccess(res, { user }, StatusCodes.CREATED);
+    const otp = await AuthService.register(req.body);
+    sendSuccess(res, { otp }, StatusCodes.ACCEPTED);
+}
+
+export async function sendOtpController(req: Request, res: Response): Promise<void> {
+    const otp = await AuthService.sendOtp(req.body.phone, req.body.type);
+    sendSuccess(res, otp ? { otp } : null, StatusCodes.ACCEPTED);
+}
+
+export async function verifyRegistrationController(req: Request, res: Response): Promise<void> {
+    const data = await AuthService.verifyRegistration(req.body.phone, req.body.otp);
+    sendSuccess(res, { user: data.user.toJSON(), accessToken: data.accessToken, refreshToken: data.refreshToken });
+}
+
+export async function forgotPasswordController(req: Request, res: Response): Promise<void> {
+    const otp = await AuthService.forgotPassword(req.body.phone);
+    sendSuccess(res, otp ? { otp } : null, StatusCodes.ACCEPTED);
+}
+
+export async function resetPasswordController(req: Request, res: Response): Promise<void> {
+    await AuthService.resetPassword(req.body.phone, req.body.otp, req.body.newPassword);
+    sendSuccess(res, null);
+}
+
+export async function requestPhoneChangeController(req: Request, res: Response): Promise<void> {
+    const otp = await AuthService.requestPhoneChange((req.user as UserModel).id, req.body.phone);
+    sendSuccess(res, { otp }, StatusCodes.ACCEPTED);
+}
+
+export async function verifyPhoneChangeController(req: Request, res: Response): Promise<void> {
+    const user = await AuthService.verifyPhoneChange((req.user as UserModel).id, req.body.otp);
+    sendSuccess(res, { user: user.toJSON() });
 }
 
 export async function refreshTokenController(req: Request, res: Response): Promise<void> {

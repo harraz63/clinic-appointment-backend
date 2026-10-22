@@ -4,11 +4,12 @@ import { UserModel } from './model/user.model.js';
 import { Op, WhereOptions } from 'sequelize';
 import { Role } from '../../../constants/roles.js';
 import { isStrongPassword } from '../../../utils/password.utils.js';
+import { normalizeEgyptianPhone } from '../../../utils/phone.utils.js';
 
 
 export interface UserFilter {
     name?: string;
-    provider?: string;
+    phone?: string;
     role?: Role;
     isVerified?: boolean;
     isBlocked?: boolean;
@@ -29,21 +30,23 @@ interface PaginationResult {
 
 export class UserService {
 
-    static getUserByProvider(provider: string) {
-        return UserModel.findOne({ where: { provider } });
+    static getUserByPhone(phone: string) {
+        return UserModel.findOne({ where: { phone: normalizeEgyptianPhone(phone) } });
     }
 
     static async createUser(userData: Partial<UserModel>): Promise<UserModel> {
-        const existingUser = await UserModel.findOne({ where: { provider: userData.provider } });
+        if (!userData.phone) throw new HttpResponseError(StatusCodes.UNPROCESSABLE_ENTITY, 'Phone must be a valid Egyptian mobile number');
+        const phone = normalizeEgyptianPhone(userData.phone);
+        const existingUser = await UserModel.findOne({ where: { phone } });
         if (existingUser) {
-            throw new HttpResponseError(StatusCodes.CONFLICT, 'User with this provider already exists');
+            throw new HttpResponseError(StatusCodes.CONFLICT, 'User with this phone already exists');
         }
 
         if (userData.password && !isStrongPassword(userData.password)) {
             throw new HttpResponseError(StatusCodes.UNPROCESSABLE_ENTITY, 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character');
         }
 
-        const user = new UserModel(userData);
+        const user = new UserModel({ ...userData, phone });
         await user.save();
         return this.getUserById(user.id.toString());
     }
@@ -61,7 +64,14 @@ export class UserService {
         if (!user) {
             throw new HttpResponseError(StatusCodes.NOT_FOUND, 'User not found');
         }
-        await user.update(updateData);
+        const changes = { ...updateData };
+        if (changes.phone) {
+            changes.phone = normalizeEgyptianPhone(changes.phone);
+            const duplicate = await UserModel.findOne({ where: { phone: changes.phone } });
+            if (duplicate && duplicate.id !== user.id) throw new HttpResponseError(StatusCodes.CONFLICT, 'User with this phone already exists');
+            changes.isVerified = true;
+        }
+        await user.update(changes);
         return this.getUserById(user.id.toString());
     }
 
@@ -83,7 +93,7 @@ export class UserService {
         const skip = (Number(page) - 1) * Number(limit);
         const where: WhereOptions = { ...filter };
         if (filter.name) where.name = { [Op.iLike]: '%' + filter.name + '%' };
-        if (filter.provider) where.provider = { [Op.iLike]: '%' + filter.provider + '%' };
+        if (filter.phone) where.phone = { [Op.iLike]: '%' + normalizeEgyptianPhone(filter.phone) + '%' };
 
         const [users, total] = await Promise.all([
             UserModel.findAll({

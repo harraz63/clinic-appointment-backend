@@ -6,6 +6,7 @@ import { passportConfig } from './config/passport.config.js';
 import { env } from './config/env.js';
 import { initializeAssociations } from './database/associations.js';
 import { infoLogger } from './config/logger.config.js';
+import { initializeRedis } from './config/redis.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +15,7 @@ const PORT = env.PORT;
 
 initializeAssociations();
 await initializeDatabase();
+await initializeRedis();
 await passportConfig();
 initializeApp(app);
 

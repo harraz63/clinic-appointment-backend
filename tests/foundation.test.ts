@@ -2,7 +2,7 @@ import './setup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { registerSchema, updateMeSchema } from '../src/modules/auth/v1/auth.validation.js';
+import { forgotPasswordSchema, registerSchema, sendOtpSchema, updateMeSchema, verifyRegistrationSchema } from '../src/modules/auth/v1/auth.validation.js';
 import { localizedTextSchema, timezoneSchema, moneySchema } from '../src/shared/localized-text.js';
 import { Roles } from '../src/constants/roles.js';
 import { assertAppointmentPermission } from '../src/modules/appointments/v1/appointment.permissions.js';
@@ -15,11 +15,21 @@ import { DoctorModel } from '../src/modules/doctors/v1/model/doctor.model.js';
 import { AppointmentModel } from '../src/modules/appointments/v1/model/appointment.model.js';
 import { workingIntervalSchema, scheduleExceptionSchema } from '../src/modules/doctor-schedules/v1/doctor-schedule.validation.js';
 import { Request, Response } from 'express';
+import { normalizeEgyptianPhone } from '../src/utils/phone.utils.js';
 
-const registration = { provider: 'patient@example.com', name: 'Test Patient', password: 'TestOnly#123' };
+const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
 
 test('public registration rejects privilege fields and self-profile rejects administrative fields', () => {
     assert.equal(registerSchema.validate(registration).error, undefined);
+    assert.ok(registerSchema.validate({ ...registration, provider: 'person@example.com' }).error);
+    assert.equal(verifyRegistrationSchema.validate({ phone: registration.phone, otp: '123456' }).error, undefined);
+    assert.ok(verifyRegistrationSchema.validate({ phone: registration.phone, otp: '12345' }).error);
+    assert.equal(sendOtpSchema.validate({ phone: registration.phone, type: 'register' }).error, undefined);
+    assert.ok(sendOtpSchema.validate({ phone: registration.phone, type: 'login' }).error);
+    assert.equal(forgotPasswordSchema.validate({ phone: registration.phone }).error, undefined);
+    assert.equal(normalizeEgyptianPhone('010 1234 5678'), '+201012345678');
+    assert.equal(normalizeEgyptianPhone('+201012345678'), '+201012345678');
+    assert.throws(() => normalizeEgyptianPhone('person@example.com'), { statusCode: 422 });
     for (const field of ['role', 'isVerified', 'isBlocked']) {
         assert.ok(registerSchema.validate({ ...registration, [field]: field === 'role' ? Roles.ADMIN : true }).error);
         assert.ok(updateMeSchema.validate({ [field]: field === 'role' ? Roles.ADMIN : true }).error);
