@@ -88,6 +88,7 @@
     "doctor": "طبيب",
     "customer": "عميل",
     "internal_server_error": "حدث خطأ داخلي في الخادم",
+    "service_unavailable": "الخدمة غير متاحة مؤقتًا",
     "Invalid or expired token": "رمز غير صالح أو منتهي الصلاحية",
     "Account is blocked": "الحساب محظور",
     "You do not have permission to perform this action": "ليس لديك صلاحية لتنفيذ هذا الإجراء",

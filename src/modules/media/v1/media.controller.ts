@@ -1,6 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { MediaService } from './media-processing.service.js';
 import { HttpResponseError } from '../../../utils/appError.js';
+import { sendSuccess } from '../../../shared/api-response.js';
 
 export const uploadMedia = async (req, res) => {
     if (!req.file) {
@@ -8,7 +9,7 @@ export const uploadMedia = async (req, res) => {
     }
 
     const media = await MediaService.processAndUpload(req.file);
-    res.status(StatusCodes.CREATED).json(media);
+    sendSuccess(res, media, StatusCodes.CREATED);
 };
 
 export const getMedia = async (req, res) => {
@@ -22,5 +23,5 @@ export const getMedia = async (req, res) => {
 export const getMediaInfo = async (req, res) => {
     const { id } = req.params;
     const mediaInfo = await MediaService.getMediaInfo(id);
-    res.json(mediaInfo);
+    sendSuccess(res, mediaInfo);
 };

@@ -206,17 +206,21 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 
 User filtering accepts `page`, `limit`, `provider`, `name`, `role`, `isVerified`, and `isBlocked`; no matching rows return 404. Name/provider filters use PostgreSQL case-insensitive substring matching (`ILIKE`). Controllers explicitly supply omitted pagination defaults. Joi still validates merged request fields without writing normalized values back to the request.
 
-Most auth/user success responses use `{ status: "success", data: ... }`; metadata, health, constants, media, and some handlers use different shapes. Expected errors use:
+All JSON success responses use `{ status: "success", data: ... }`. This includes metadata, health, constants, auth, users, and media upload/metadata. Actions without a result return `data: null`. Health diagnostics are nested in `data` for both healthy and degraded responses. Binary media downloads and the OpenAPI document keep their native formats.
+
+Expected errors use:
 
 ```json
 {
-  "message": "Localized error message",
+  "status": "fail",
   "statusCode": 422,
-  "status": "fail"
+  "message": "Localized error message"
 }
 ```
 
 Validation errors return 422. Expected 4xx errors use `status: "fail"`; server errors use `status: "error"`. Unexpected failures return 500 with the localized `internal_server_error` message. Messages support Arabic and English; Arabic is the default locale.
+
+The health endpoint returns the same error fields with `status: "error"` and `statusCode: 503` when PostgreSQL is unavailable; its degraded status, service metadata, and dependency details are included in `data`.
 
 ## Migrations and seeding
 
@@ -274,7 +278,7 @@ For source/configuration changes, run lint, build, and relevant tests and report
 
 - Clinic models and contracts are prepared; CRUD, booking, scheduling, overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
 - Google routes are optional; provider-backed OAuth has not been verified end to end. Password changes do not revoke sessions, and refresh rotation is not serialized against concurrent requests.
-- Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. Existing success responses vary between modules; new contracts do not retroactively normalize them.
+- Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.
 - Media remains public with incomplete processing. Production uploads lack a persistent volume. Docker startup still migrates and seeds, resetting the configured administrator password. No graceful shutdown or CI deployment workflow exists.
 - Redis remains unused by application code. Email, SMS, push, medical records, and private clinical files are outside this foundation.

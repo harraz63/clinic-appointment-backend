@@ -53,7 +53,7 @@ Some current handlers directly access models, and media routes have no authentic
 
 Versioned modules live in `src/modules/<domain>/v1`; constants are an unversioned exception. See [README.md](./README.md) for individual endpoints.
 
-Joi validation merges body, params, and query in that order, so later values win. Validation errors become localized 422 responses. The middleware does not propagate Joi's returned normalized value to the request. HTTP errors use `HttpResponseError`; unexpected errors are logged and return a localized 500 response. Success responses are handler-specific.
+Joi validation merges body, params, and query in that order, so later values win. Validation errors become localized 422 responses. The middleware does not propagate Joi's returned normalized value to the request. JSON success responses use `{ status: 'success', data }`; no-result actions return `data: null`. Errors use `{ status: 'fail' | 'error', statusCode, message }`, with health-check diagnostics included as `data` on its 503 response. Binary media downloads and the OpenAPI document retain their native formats. HTTP errors use `HttpResponseError`; unexpected errors are logged and return a localized 500 response.
 
 ## Persistence model
 

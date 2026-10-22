@@ -1,6 +1,7 @@
 import { StatusCodes } from 'http-status-codes';
 import { Request, Response } from 'express';
 import { UserService, UserFilter } from './user.service.js';
+import { sendSuccess } from '../../../shared/api-response.js';
 
 
 export async function createUserController(req: Request, res: Response): Promise<void> {
@@ -9,34 +10,22 @@ export async function createUserController(req: Request, res: Response): Promise
         isVerified: true
     });
 
-    res.status(StatusCodes.CREATED).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user }, StatusCodes.CREATED);
 }
 
 export async function getUserByIdController(req: Request, res: Response): Promise<void> {
     const user = await UserService.getUserById(req.params.id);
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user });
 }
 
 export async function updateUserController(req: Request, res: Response): Promise<void> {
     const user = await UserService.updateUser(req.params.id, req.body);
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user });
 }
 
 export async function deleteUserController(req: Request, res: Response): Promise<void> {
     const user = await UserService.deleteUser(req.params.id);
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user });
 }
 
 export async function getUsersFilterController(req: Request, res: Response): Promise<void> {
@@ -47,8 +36,5 @@ export async function getUsersFilterController(req: Request, res: Response): Pro
         limit: limit === undefined ? 10 : Number(limit)
     });
 
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data
-    });
+    sendSuccess(res, data);
 }

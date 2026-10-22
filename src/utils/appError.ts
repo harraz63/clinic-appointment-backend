@@ -1,6 +1,6 @@
 export class HttpResponseError extends Error {
     statusCode: number;
-    status: string;
+    status: 'fail' | 'error';
 
     constructor(statusCode: number, message: string) {
         super(message);

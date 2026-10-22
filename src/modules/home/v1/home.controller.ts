@@ -1,5 +1,6 @@
 import { env } from '../../../config/env.js';
 import { Request, Response } from 'express';
+import { sendSuccess } from '../../../shared/api-response.js';
 
 
 interface AppMetadata {
@@ -15,5 +16,5 @@ export async function retrieveAppMetadataController(
         appName: env.APP_NAME,
         appVersion: env.APP_VERSION,
     };
-    res.json(metadata);
+    sendSuccess(res, metadata);
 }

@@ -4,7 +4,17 @@ const jsonRequest = (schema: object) => ({
 });
 
 const successResponse = {
-    '200': { description: 'Successful response' },
+    '200': {
+        description: 'Successful response wrapped in the standard JSON envelope',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } },
+    },
+};
+
+const createdResponse = {
+    '201': {
+        description: 'Resource created and returned in the standard JSON envelope',
+        content: { 'application/json': { schema: { $ref: '#/components/schemas/Success' } } },
+    },
 };
 
 const validationError = {
@@ -35,7 +45,7 @@ export const openapiDocument = {
             get: {
                 tags: ['Metadata'],
                 summary: 'Get application metadata',
-                responses: { ...successResponse, '500': { description: 'Internal server error' } },
+                responses: { ...successResponse, '500': { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } } },
             },
         },
         '/health': {
@@ -43,8 +53,11 @@ export const openapiDocument = {
                 tags: ['Metadata'],
                 summary: 'Check database health',
                 responses: {
-                    '200': { description: 'Database is available' },
-                    '503': { description: 'Database is unavailable' },
+                    '200': { ...successResponse['200'], description: 'Database is available; diagnostics are in data' },
+                    '503': {
+                        description: 'Database is unavailable; error details and health diagnostics are returned',
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/HealthError' } } },
+                    },
                 },
             },
         },
@@ -69,7 +82,7 @@ export const openapiDocument = {
                     },
                     additionalProperties: false,
                 }),
-                responses: { '201': { description: 'Customer account created' }, ...validationError },
+                responses: { ...createdResponse, ...validationError },
             },
         },
         '/api/v1/auth/login': {
@@ -84,7 +97,7 @@ export const openapiDocument = {
                         password: { type: 'string', format: 'password' },
                     },
                 }),
-                responses: { '200': { description: 'User and access/refresh tokens' }, ...validationError },
+                responses: { ...successResponse, ...validationError },
             },
         },
         '/api/v1/auth/refresh-token': {
@@ -96,7 +109,7 @@ export const openapiDocument = {
                     required: ['refreshToken'],
                     properties: { refreshToken: { type: 'string' } },
                 }),
-                responses: { '200': { description: 'New access and refresh tokens' }, ...validationError },
+                responses: { ...successResponse, ...validationError },
             },
         },
         '/api/v1/auth/logout': {
@@ -157,7 +170,7 @@ export const openapiDocument = {
                 tags: ['Users'],
                 summary: 'Create a user (admin only)',
                 security: secured,
-                responses: { '201': { description: 'User created' }, ...validationError },
+                responses: { ...createdResponse, ...validationError },
             },
         },
         '/api/v1/users/filter': {
@@ -195,7 +208,10 @@ export const openapiDocument = {
                         properties: { media: { type: 'string', format: 'binary' } },
                     } } },
                 },
-                responses: { '200': { description: 'Media uploaded' }, '400': { description: 'Upload rejected' } },
+                responses: {
+                    ...createdResponse,
+                    '400': { description: 'Upload rejected', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                },
             },
         },
         '/api/v1/media/{id}': {
@@ -216,12 +232,42 @@ export const openapiDocument = {
             bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         },
         schemas: {
+            Success: {
+                type: 'object',
+                required: ['status', 'data'],
+                properties: {
+                    status: { type: 'string', enum: ['success'] },
+                    data: { nullable: true, description: 'Endpoint result, or null when the action has no result' },
+                },
+            },
             Error: {
                 type: 'object',
+                required: ['message', 'statusCode', 'status'],
                 properties: {
                     message: { type: 'string' },
                     statusCode: { type: 'integer' },
                     status: { type: 'string', enum: ['fail', 'error'] },
+                },
+            },
+            HealthError: {
+                type: 'object',
+                required: ['message', 'statusCode', 'status', 'data'],
+                properties: {
+                    message: { type: 'string' },
+                    statusCode: { type: 'integer', enum: [503] },
+                    status: { type: 'string', enum: ['error'] },
+                    data: {
+                        type: 'object',
+                        required: ['status', 'service', 'version', 'uptime', 'timestamp', 'dependencies'],
+                        properties: {
+                            status: { type: 'string', enum: ['degraded'] },
+                            service: { type: 'string' },
+                            version: { type: 'string' },
+                            uptime: { type: 'number' },
+                            timestamp: { type: 'string', format: 'date-time' },
+                            dependencies: { type: 'object', properties: { database: { type: 'string', enum: ['down'] } } },
+                        },
+                    },
                 },
             },
         },

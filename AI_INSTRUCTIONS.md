@@ -41,7 +41,7 @@ Create only the files a feature needs; small metadata and health handlers do not
 - Services enforce authorization, business rules, and multi-record consistency. Use transactions when a change requires atomic persistence.
 - Models declare durable state and associations; migrations apply schema changes. Keep imports and association initialization explicit.
 
-Preserve existing API shapes unless the task calls for a contract change. Errors normally use `{ message, statusCode, status }`, while successful handlers use several shapes. Do not document a universal success envelope that the code does not provide.
+JSON success responses use the shared `{ status: 'success', data }` envelope through `sendSuccess` and the `Success<T>` type. Use `data: null` when an action has no result. Errors use `{ status: 'fail' | 'error', statusCode, message }`; the health endpoint's 503 error also carries its diagnostics in `data`. Keep binary media downloads and the OpenAPI document in their native formats. Update OpenAPI and the response-contract documentation when changing these conventions.
 
 ## Authentication and authorization
 

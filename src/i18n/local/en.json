@@ -26,6 +26,7 @@
     "doctor": "Doctor",
     "customer": "Customer",
     "internal_server_error": "Internal server error",
+    "service_unavailable": "Service temporarily unavailable",
     "Invalid or expired token": "Invalid or expired token",
     "Account is blocked": "Account is blocked",
     "You do not have permission to perform this action": "You do not have permission to perform this action",

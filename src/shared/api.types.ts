@@ -15,3 +15,10 @@ export interface Success<T> {
     status: 'success';
     data: T;
 }
+
+export interface ErrorResponse<T = unknown> {
+    status: 'fail' | 'error';
+    statusCode: number;
+    message: string;
+    data?: T;
+}

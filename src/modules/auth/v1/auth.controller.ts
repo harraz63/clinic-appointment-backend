@@ -9,6 +9,7 @@ import { googleClient } from '../../../config/google-client.js';
 import { UserSessionModel } from '../../user-session/v1/model/user-session.entity.js';
 import { errorLogger } from '../../../config/logger.config.js';
 import { env } from '../../../config/env.js';
+import { sendSuccess } from '../../../shared/api-response.js';
 
 
 export async function loginController(req: Request, res: Response): Promise<void> {
@@ -16,35 +17,26 @@ export async function loginController(req: Request, res: Response): Promise<void
 
     const { user, accessToken, refreshToken } = await AuthService.login(provider, password);
 
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: {
-            user: user.toJSON(),
-            accessToken,
-            refreshToken,
-        }
+    sendSuccess(res, {
+        user: user.toJSON(),
+        accessToken,
+        refreshToken,
     });
 }
 
 export async function registerController(req: Request, res: Response): Promise<void> {
     const user = await AuthService.register(req.body);
-    res.status(StatusCodes.CREATED).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user }, StatusCodes.CREATED);
 }
 
 export async function refreshTokenController(req: Request, res: Response): Promise<void> {
     const { refreshToken } = req.body;
     const { accessToken, newRefreshToken } = await AuthService.refreshToken(refreshToken);
 
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: {
-            accessToken,
-            refreshToken: newRefreshToken,
-            expiresAt: accessToken.expiresAt
-        }
+    sendSuccess(res, {
+        accessToken,
+        refreshToken: newRefreshToken,
+        expiresAt: accessToken.expiresAt
     });
 }
 
@@ -66,13 +58,10 @@ export const googleAuthCallback = [
             req.user.generateRefreshToken(session.id.toString())
         ]);
 
-        res.json({
-            status: 'success',
-            data: {
-                accessToken,
-                refreshToken,
-                user: req.user.toJSON()
-            }
+        sendSuccess(res, {
+            accessToken,
+            refreshToken,
+            user: req.user.toJSON()
         });
     }
 ];
@@ -122,13 +111,10 @@ export async function googleMobileAuthController(req: Request, res: Response): P
             user.generateRefreshToken(session.id.toString()),
         ]);
 
-        res.status(StatusCodes.OK).json({
-            status: 'success',
-            data: {
-                user,
-                accessToken,
-                refreshToken,
-            }
+        sendSuccess(res, {
+            user,
+            accessToken,
+            refreshToken,
         });
     } catch (error) {
         errorLogger.error('Google authentication failed');
@@ -143,22 +129,19 @@ export async function googleMobileAuthController(req: Request, res: Response): P
 export async function logoutController(req: Request, res: Response): Promise<void> {
     const { refreshToken } = req.body;
     await AuthService.logout(refreshToken);
-    res.status(StatusCodes.OK).json({ status: 'success' });
+    sendSuccess(res, null);
 }
 
 export async function changePasswordController(req: Request, res: Response): Promise<void> {
     const userId = (req.user as UserModel).id.toString();
     const { currentPassword, newPassword } = req.body;
     await AuthService.changePassword(userId, currentPassword, newPassword);
-    res.status(StatusCodes.OK).json({ status: 'success' });
+    sendSuccess(res, null);
 }
 
 export async function getMeController(req: Request, res: Response): Promise<void> {
     const user = req.user as UserModel;
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: { user: user.toJSON() }
-    });
+    sendSuccess(res, { user: user.toJSON() });
 }
 
 export async function updateMeController(req: Request, res: Response): Promise<void> {
@@ -168,14 +151,11 @@ export async function updateMeController(req: Request, res: Response): Promise<v
         delete req.body.password;
     }
     const user = await UserService.updateUser(userId, req.body);
-    res.status(StatusCodes.OK).json({
-        status: 'success',
-        data: { user }
-    });
+    sendSuccess(res, { user });
 }
 
 export async function deleteMeController(req: Request, res: Response): Promise<void> {
     const userId = (req.user as UserModel).id.toString();
     await UserService.deleteUser(userId);
-    res.status(StatusCodes.OK).json({ status: 'success' });
+    sendSuccess(res, null);
 }
