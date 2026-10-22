@@ -1,5 +1,4 @@
 import express from 'express';
-import { env } from '../../../config/env.js';
 import { validateRequest } from '../../../middleware/validation.middleware.js';
 import { auth } from '../../../middleware/authorization.middleware.js';
 import {
@@ -10,16 +9,12 @@ import {
     changePasswordController,
     getMeController,
     updateMeController,
-    deleteMeController,
-    googleWebAuth,
-    googleMobileAuthController,
-    googleAuthCallback
+    deleteMeController
 } from './auth.controller.js';
 import {
     loginSchema,
     registerSchema,
     refreshTokenSchema,
-    googleMobileSchema,
     logoutSchema,
     changePasswordSchema,
     updateMeSchema
@@ -33,13 +28,6 @@ authRouterV1.post('/login', validateRequest(loginSchema), loginController);
 authRouterV1.post('/register', validateRequest(registerSchema), registerController);
 authRouterV1.post('/refresh-token', validateRequest(refreshTokenSchema), refreshTokenController);
 authRouterV1.post('/logout', validateRequest(logoutSchema), logoutController);
-if (env.GOOGLE_AUTH_ENABLED) {
-    authRouterV1.get('/google', googleWebAuth);
-
-    authRouterV1.get('/google/callback', googleAuthCallback);
-
-    authRouterV1.post('/google/mobile', validateRequest(googleMobileSchema), googleMobileAuthController);
-}
 
 
 // Authenticated routes

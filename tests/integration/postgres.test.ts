@@ -92,7 +92,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     let refreshToken: string;
     let customerId: string;
     let adminId: string;
-    await t.test('metadata, health, registration, login and protected profile work without Google configuration', async () => {
+    await t.test('metadata, health, registration, login and protected profile work without provider configuration', async () => {
         const metadata = await request('/');
         assert.equal(metadata.status, 200);
         assert.equal(metadata.body.status, 'success');
@@ -162,7 +162,9 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal(missing.body.status, 'fail');
         assert.equal(missing.body.statusCode, 404);
         assert.equal(typeof missing.body.message, 'string');
-        assert.equal((await request('/api/v1/auth/google')).status, 401);
+        assert.equal((await request('/api/v1/auth/google', 'GET', undefined, accessToken)).status, 404);
+        assert.equal((await request('/api/v1/auth/google/callback', 'GET', undefined, accessToken)).status, 404);
+        assert.equal((await request('/api/v1/auth/google/mobile', 'POST', { idToken: 'unused' }, accessToken)).status, 404);
         assert.equal((await request('/api/v1/user-session/fcm-token', 'PATCH', { fcmToken: 'unused' })).status, 404);
     });
     await t.test('blocked users, deleted sessions and invalid refresh tokens fail cleanly', async () => {
@@ -178,11 +180,56 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken })).status, 403);
         await UserModel.update({ isBlocked: false }, { where: { id: customerId } });
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: 'invalid' })).status, 401);
-        const rotated = await request('/api/v1/auth/refresh-token', 'POST', { refreshToken });
-        assert.equal(rotated.status, 200);
+        const concurrentRotations = await Promise.all([
+            request('/api/v1/auth/refresh-token', 'POST', { refreshToken }),
+            request('/api/v1/auth/refresh-token', 'POST', { refreshToken })
+        ]);
+        assert.deepEqual(concurrentRotations.map(response => response.status).sort(), [200, 401]);
+        const rotated = concurrentRotations.find(response => response.status === 200);
+        assert.ok(rotated);
+        const currentRefreshToken = rotated.body.data.refreshToken;
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken })).status, 401);
+        assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: currentRefreshToken })).status, 200);
         await UserSessionModel.destroy({ where: { userId: customerId } });
         assert.equal((await request('/api/v1/auth/me', 'GET', undefined, accessToken)).status, 401);
+    });
+    await t.test('password changes transactionally revoke all sessions, only after password validation', async () => {
+        const originalPassword = 'TestOnly#123';
+        const newPassword = 'ChangedOnly#456';
+        const firstLogin = await request('/api/v1/auth/login', 'POST', { provider: 'patient@example.com', password: originalPassword });
+        const secondLogin = await request('/api/v1/auth/login', 'POST', { provider: 'patient@example.com', password: originalPassword });
+        assert.equal(firstLogin.status, 200);
+        assert.equal(secondLogin.status, 200);
+        const firstAccess = firstLogin.body.data.accessToken.token;
+        const secondAccess = secondLogin.body.data.accessToken.token;
+        const firstRefresh = firstLogin.body.data.refreshToken;
+        const secondRefresh = secondLogin.body.data.refreshToken;
+        const sessionCountBeforeInvalidAttempt = await UserSessionModel.count({ where: { userId: customerId } });
+
+        const invalidChange = await request('/api/v1/auth/password', 'PATCH', {
+            currentPassword: 'WrongOnly#123', newPassword
+        }, firstAccess);
+        assert.equal(invalidChange.status, 401);
+        assert.equal(await UserSessionModel.count({ where: { userId: customerId } }), sessionCountBeforeInvalidAttempt);
+        assert.equal((await request('/api/v1/auth/me', 'GET', undefined, firstAccess)).status, 200);
+        const unchangedUser = await UserModel.scope('withPassword').findByPk(customerId);
+        assert.ok(unchangedUser && await unchangedUser.validatePassword(originalPassword));
+
+        const changed = await request('/api/v1/auth/password', 'PATCH', {
+            currentPassword: originalPassword, newPassword
+        }, firstAccess);
+        assert.equal(changed.status, 200);
+        assert.equal(await UserSessionModel.count({ where: { userId: customerId } }), 0);
+        assert.equal((await request('/api/v1/auth/me', 'GET', undefined, firstAccess)).status, 401);
+        assert.equal((await request('/api/v1/auth/me', 'GET', undefined, secondAccess)).status, 401);
+        assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: firstRefresh })).status, 401);
+        assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: secondRefresh })).status, 401);
+        assert.equal((await request('/api/v1/auth/login', 'POST', {
+            provider: 'patient@example.com', password: originalPassword
+        })).status, 401);
+        assert.equal((await request('/api/v1/auth/login', 'POST', {
+            provider: 'patient@example.com', password: newPassword
+        })).status, 200);
     });
     await t.test('models preserve bilingual data, decimal prices and historical branch/price snapshots', async () => {
         const { BranchModel } = await import('../../src/modules/branches/v1/model/branch.model.js');

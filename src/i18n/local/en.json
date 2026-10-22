@@ -35,8 +35,6 @@
     "User not found": "User not found",
     "Session not found": "Session not found",
     "Current password is incorrect": "Current password is incorrect",
-    "Google authentication failed": "Google authentication failed",
-    "Invalid Google token payload": "Invalid Google token payload",
     "User with this provider already exists": "User with this provider already exists",
     "Password must be at least 8 characters long and include uppercase, lowercase, number, and special character": "Password must be at least 8 characters long and include uppercase, lowercase, number, and special character",
     "Male": "Male",

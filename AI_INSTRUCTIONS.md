@@ -50,14 +50,14 @@ JSON success responses use the shared `{ status: 'success', data }` envelope thr
 - Use auth for protected endpoints and obtain identity/session from the authenticated request. Session authentication and refresh enforce account blocking, session ownership, and session expiration. Missing sessions yield an expected 401.
 - Appointment access foundations live in appointment.permissions.ts: admins manage all, doctors view/confirm/complete/no-show their own, and customers view/cancel/reschedule their own. Cancellation/rescheduling policies and lifecycle transitions are future service rules.
 - Preserve bcrypt hashing through the user save hook. User serialization strips passwords even for password-inclusive scopes. Do not log credentials, users, tokens, connection URLs, or SQL values.
-- Access token responses retain token and expiresAt. Access tokens preserve the existing 15-hour lifetime; refresh tokens last seven days. Password changes use a password-inclusive query but do not revoke sessions. Refresh rotation is not serialized against concurrent requests.
-- Google routes and strategy are enabled only by configuration. Web callbacks use session:false. External Google login still needs provider-backed end-to-end verification.
+- Access token responses retain token and expiresAt. Access tokens preserve the existing 15-hour lifetime; refresh tokens last seven days. Password changes save the new hash and revoke all sessions transactionally. Refresh rotation locks the session row so concurrent use of one refresh token yields at most one successful rotation.
+- Authentication uses the provider/password flow; Google authentication and its runtime configuration have been removed. Legacy Google IDs may remain in stored user rows and must not be deleted by an unrelated change.
 
 ## Configuration and integrations
 
 - Read new configuration through `env` in `src/config/env.ts`. Add schema validation, example settings, and README guidance together. For optional providers, validate required settings when that provider is selected.
 - `.env.example` uses Compose service names. Host development needs `localhost` for PostgreSQL; only the hostname `db` has a fallback in database configuration, not `postgres`.
-- Google is disabled by default; `GOOGLE_AUTH_ENABLED=true` requires web client ID, secret, and callback URL. `MOBILE_GOOGLE_CLIENT_ID` is optional and falls back to `GOOGLE_CLIENT_ID`. SMTP configuration has been removed. `CLINIC_CURRENCY` defaults to `EGP`.
+- SMTP and Google authentication configuration have been removed. `CLINIC_CURRENCY` defaults to `EGP`.
 - Compose provisions Redis and waits for its health check, but no application Redis client exists and `REDIS_URL` is absent from the Zod schema. Do not add ad hoc Redis usage as an incidental change.
 - Firebase, Nodemailer, and session FCM handling have been removed. Notifications are prepared as database-backed inbox records only; no delivery or reminder worker exists.
 - Use Winston for new logs and sanitize error context. Existing authentication and database logs expose sensitive values and must not be copied into new code or documentation examples.

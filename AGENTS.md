@@ -8,7 +8,7 @@ These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTU
 - The current application uses TypeScript, native ES modules, Express 4, Sequelize 6, and PostgreSQL. Docker targets Node.js 20 and provisions PostgreSQL 16 and Redis 7.
 - Implemented HTTP areas are authentication, administrator user management, self-profile management, public media upload/retrieval, constants, metadata, and database health.
 - Roles are `admin`, `doctor`, and `customer`. `Roles.USER` is a compatibility key with value `customer` because migration 001 imports it. Public registration forbids role, verification, and blocking fields and always creates customers.
-- Redis is present in Compose and `.env.example`, but the application has no Redis client or runtime integration. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker or implemented OTP flow.
+- Redis is present in Compose and `.env.example`, but the application has no Redis client or runtime integration. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker or implemented OTP flow.
 
 ## Implementation rules
 

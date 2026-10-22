@@ -96,8 +96,6 @@
     "Invalid refresh token": "رمز التجديد غير صالح",
     "Session not found": "الجلسة غير موجودة",
     "Current password is incorrect": "كلمة المرور الحالية غير صحيحة",
-    "Google authentication failed": "فشل تسجيل الدخول باستخدام جوجل",
-    "Invalid Google token payload": "بيانات رمز جوجل غير صالحة",
     "User with this provider already exists": "يوجد مستخدم بهذه البيانات بالفعل",
     "Password must be at least 8 characters long and include uppercase, lowercase, number, and special character": "يجب أن تتكون كلمة المرور من ثمانية أحرف على الأقل وتشمل حرفاً كبيراً وحرفاً صغيراً ورقماً ورمزاً خاصاً"
 }

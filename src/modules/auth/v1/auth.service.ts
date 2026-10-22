@@ -5,6 +5,7 @@ import { UserModel } from '../../user/v1/model/user.model.js';
 import { isStrongPassword } from '../../../utils/password.utils.js';
 import { UserSessionModel } from '../../user-session/v1/model/user-session.entity.js';
 import { IAuthToken } from '../../../utils/token.utils.js';
+import { sequelize } from '../../../database/db-config.js';
 import { UserService } from '../../user/v1/user.service.js';
 import { env } from '../../../config/env.js';
 import { Roles } from '../../../constants/roles.js';
@@ -55,17 +56,22 @@ export class AuthService {
         } catch {
             throw new HttpResponseError(StatusCodes.UNAUTHORIZED, 'Invalid refresh token');
         }
-        const session = await UserSessionModel.findOne({ where: { id: decoded.sessionId, refreshToken } });
-        const user = await UserModel.findByPk(decoded._id);
-        assertActiveSession(user, session);
-        const newAccessToken = user.generateAuthToken(session.id.toString());
-        const newRefreshToken = await user.generateRefreshToken(session.id.toString());
+        return sequelize.transaction(async transaction => {
+            const session = await UserSessionModel.findByPk(decoded.sessionId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE
+            });
+            if (!session || session.refreshToken !== refreshToken) {
+                throw new HttpResponseError(StatusCodes.UNAUTHORIZED, 'Invalid or expired token');
+            }
 
-        session.refreshToken = newRefreshToken;
+            const user = await UserModel.findByPk(decoded._id, { transaction });
+            assertActiveSession(user, session);
 
-        await session.save();
-
-        return { accessToken: newAccessToken, newRefreshToken };
+            const accessToken = user.generateAuthToken(session.id.toString());
+            const newRefreshToken = await user.generateRefreshToken(session.id.toString(), transaction);
+            return { accessToken, newRefreshToken };
+        });
     }
 
     static async logout(refreshToken: string): Promise<void> {
@@ -77,19 +83,25 @@ export class AuthService {
     }
 
     static async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
-        const user = await UserModel.scope('withPassword').findByPk(userId);
-        if (!user) throw new HttpResponseError(StatusCodes.NOT_FOUND, 'User not found');
-        const isValid = await user.validatePassword(currentPassword);
+        await sequelize.transaction(async transaction => {
+            const user = await UserModel.scope('withPassword').findByPk(userId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE
+            });
+            if (!user) throw new HttpResponseError(StatusCodes.NOT_FOUND, 'User not found');
+            const isValid = await user.validatePassword(currentPassword);
 
-        if (!isValid) {
-            throw new HttpResponseError(StatusCodes.UNAUTHORIZED, 'Current password is incorrect');
-        }
+            if (!isValid) {
+                throw new HttpResponseError(StatusCodes.UNAUTHORIZED, 'Current password is incorrect');
+            }
 
-        if (!isStrongPassword(newPassword)) {
-            throw new HttpResponseError(StatusCodes.BAD_REQUEST, 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character');
-        }
+            if (!isStrongPassword(newPassword)) {
+                throw new HttpResponseError(StatusCodes.BAD_REQUEST, 'Password must be at least 8 characters long and include uppercase, lowercase, number, and special character');
+            }
 
-        user.password = newPassword;
-        await user.save();
+            user.password = newPassword;
+            await user.save({ transaction });
+            await UserSessionModel.destroy({ where: { userId }, transaction });
+        });
     }
 }
