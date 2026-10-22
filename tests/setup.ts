@@ -4,5 +4,5 @@ Object.assign(process.env, {
     APP_NAME: 'Clinic Test', APP_VERSION: '1.0.0', PORT: '3000',
     SUPER_ADMIN_PROVIDER: 'test-admin@example.com', SUPER_ADMIN_PASSWORD: 'TestOnly#123',
     JWT_PRIVATE_KEY: 'test-only-access-key', REFRESH_TOKEN_PRIVATE_KEY: 'test-only-refresh-key',
-    STORAGE_TYPE: 'local', APP_URL: 'http://localhost:3000', GOOGLE_AUTH_ENABLED: 'false',
+    STORAGE_TYPE: 'local', APP_URL: 'http://localhost:3000',
 });

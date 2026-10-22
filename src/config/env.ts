@@ -15,11 +15,6 @@ const envSchema = z.object({
     JWT_PRIVATE_KEY: z.string().min(1, 'JWT_PRIVATE_KEY must not be empty'),
     REFRESH_TOKEN_PRIVATE_KEY: z.string().min(1, 'REFRESH_TOKEN_PRIVATE_KEY must not be empty'),
     CLINIC_CURRENCY: z.string().regex(/^[A-Z]{3}$/).default('EGP'),
-    GOOGLE_AUTH_ENABLED: z.enum(['true', 'false']).default('false').transform(value => value === 'true'),
-    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
-    MOBILE_GOOGLE_CLIENT_ID: z.string().min(1, 'MOBILE_GOOGLE_CLIENT_ID must not be empty').optional(),
-    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
-    GOOGLE_CALLBACK_URL: z.url().optional(),
     STORAGE_TYPE: z.enum(['local', 's3', 'r2']).default('local'),
     AWS_REGION: z.string().min(1, 'AWS_REGION must not be empty').optional(),
     S3_BUCKET: z.string().min(1, 'S3_BUCKET must not be empty').optional(),
@@ -40,12 +35,6 @@ const envSchema = z.object({
             });
         }
     };
-
-    if (data.GOOGLE_AUTH_ENABLED) {
-        requireField('GOOGLE_CLIENT_ID');
-        requireField('GOOGLE_CLIENT_SECRET');
-        requireField('GOOGLE_CALLBACK_URL');
-    }
 
     if (data.STORAGE_TYPE === 'local') {
         requireField('APP_URL');

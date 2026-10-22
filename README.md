@@ -8,7 +8,7 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 
 | Area | Current implementation |
 | --- | --- |
-| Authentication | Phone/email provider and password registration/login, JWT access tokens, persisted refresh-token sessions, refresh/logout, Google mobile and web route scaffolding |
+| Authentication | Phone/email provider and password registration/login, JWT access tokens, persisted refresh-token sessions, refresh/logout |
 | Users | Administrator CRUD/filter routes and authenticated self-profile read/update/delete routes |
 | Sessions | Persisted refresh tokens, session ownership/expiration and blocked-account checks |
 | Clinic foundation | Branches, specialties, doctors, schedules/exceptions, appointments, payments, inbox models, and dashboard contracts; no business endpoints |
@@ -16,7 +16,7 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
 
-Redis is provisioned in Docker Compose but is unused by the API. Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default. Swagger UI and an OpenAPI document describe the implemented HTTP API. Node/tsx tests cover the foundation; Docker integration tests use an isolated PostgreSQL container. See [known limitations](#known-limitations).
+Redis is provisioned in Docker Compose but is unused by the API. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI and an OpenAPI document describe the implemented HTTP API. Node/tsx tests cover the foundation; Docker integration tests use an isolated PostgreSQL container. See [known limitations](#known-limitations).
 
 ## Technology and repository structure
 
@@ -26,7 +26,7 @@ The application uses Express 4, TypeScript 5, native ES modules, Sequelize 6, Po
 src/
     app.ts                  Middleware and route mounting
     index.ts                Database authentication and HTTP startup
-    config/                 Environment, optional Google, Passport, CORS, logging
+    config/                 Environment, Passport, CORS, logging
     constants/              Clinic roles, appointment/payment statuses, media types
     database/               Sequelize connection, associations, migrations, seed
     i18n/local/             Arabic and English translations
@@ -121,11 +121,6 @@ The API loads `.env` through dotenv and validates settings in [src/config/env.ts
 | `JWT_PRIVATE_KEY` | Required nonempty string | Access JWT signing secret |
 | `REFRESH_TOKEN_PRIVATE_KEY` | Required nonempty string | Refresh JWT signing secret |
 | `CLINIC_CURRENCY` | Three uppercase letters; default `EGP` | Default currency for doctor model creation; snapshots retain explicit currency |
-| `GOOGLE_AUTH_ENABLED` | `true` or `false`; default `false` | Enables Google routes and strategy |
-| `GOOGLE_CLIENT_ID` | Required only when Google enabled | Google web strategy and mobile audience fallback |
-| `MOBILE_GOOGLE_CLIENT_ID` | Optional; absent from the example file | Dedicated mobile ID-token audience |
-| `GOOGLE_CLIENT_SECRET` | Required only when Google enabled | Google web OAuth client secret |
-| `GOOGLE_CALLBACK_URL` | URL; required only when Google enabled | Web callback, normally `/api/v1/auth/google/callback` on the API origin |
 | `STORAGE_TYPE` | `local`, `s3`, or `r2`; default `local` | Storage provider |
 | `APP_URL` | Required for `local` | Origin used to build `/uploads/...` URLs |
 | `AWS_REGION` | Required for `s3` | S3 region |
@@ -137,7 +132,7 @@ The API loads `.env` through dotenv and validates settings in [src/config/env.ts
 | `CLOUDFLARE_ACCOUNT_ID` | Required for `r2` | R2 endpoint account identifier |
 | `CLOUDFLARE_ACCESS_KEY_ID` | Required for `r2` | R2 access key identifier |
 
-Password authentication and local storage require no Google or SMTP credentials. Google credentials are required only with `GOOGLE_AUTH_ENABLED=true`; supplied optional values still undergo schema validation. Placeholder provider values do not establish working OAuth. S3 uses the AWS SDK's credential resolution; the application schema does not define AWS access key variables.
+Local storage requires no SMTP credentials. S3 uses the AWS SDK's credential resolution; the application schema does not define AWS access key variables.
 
 Additional infrastructure settings are outside the Zod schema:
 
@@ -172,7 +167,7 @@ Authorization: Bearer <data.accessToken.token>
 Accept-Language: en
 ```
 
-Access tokens preserve the existing **15-hour** lifetime, with consistent response expiry timestamps. Refresh tokens last seven days. Send `{ "refreshToken": "..." }` to refresh or logout; refresh rotates the stored token and logout destroys its session. Password changes do not revoke sessions. Protected and refresh requests require an unexpired matching session owned by an unblocked user.
+Access tokens preserve the existing **15-hour** lifetime, with consistent response expiry timestamps. Refresh tokens last seven days. Send `{ "refreshToken": "..." }` to refresh or logout; refresh rotates the stored token and logout destroys its session. Concurrent refresh requests using one token are serialized; only the first can rotate it. Password changes revoke all sessions, including the current one, so sign in again with the new password. Protected and refresh requests require an unexpired matching session owned by an unblocked user.
 
 ## API endpoints
 
@@ -187,9 +182,6 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | POST | `/api/v1/auth/login` | Public | Provider/password login |
 | POST | `/api/v1/auth/refresh-token` | Public | Rotate supplied refresh token |
 | POST | `/api/v1/auth/logout` | Public | Delete session matching supplied refresh token |
-| GET | `/api/v1/auth/google` | Public, when Google enabled | Begin Google web OAuth |
-| GET | `/api/v1/auth/google/callback` | Public, when Google enabled | Session-free web callback |
-| POST | `/api/v1/auth/google/mobile` | Public, when Google enabled | Verify supplied `idToken` and issue tokens |
 | PATCH | `/api/v1/auth/password` | Authenticated | `currentPassword`, `newPassword` |
 | GET | `/api/v1/auth/me` | Authenticated | Read current profile |
 | PATCH | `/api/v1/auth/me` | Authenticated | Update name; administrative fields forbidden |
@@ -277,7 +269,7 @@ For source/configuration changes, run lint, build, and relevant tests and report
 ## Known limitations
 
 - Clinic models and contracts are prepared; CRUD, booking, scheduling, overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
-- Google routes are optional; provider-backed OAuth has not been verified end to end. Password changes do not revoke sessions, and refresh rotation is not serialized against concurrent requests.
+- Google authentication is not implemented. Existing Google-only accounts are preserved but cannot sign in until a password is set. Password changes revoke all sessions; refresh rotation is serialized per session.
 - Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.
 - Media remains public with incomplete processing. Production uploads lack a persistent volume. Docker startup still migrates and seeds, resetting the configured administrator password. No graceful shutdown or CI deployment workflow exists.

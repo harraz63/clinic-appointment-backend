@@ -6,7 +6,7 @@ The original template provided Express 4, TypeScript 5 with native ESM, Sequeliz
 
 Authentication, administrator user management, profile management, public media, constants, metadata, and database health have real HTTP handlers. The clinic modules below provide persistence definitions and development contracts only. No clinic routes are mounted, no appointment can be booked through this API yet, and no mock dashboard or payment workflow is presented as implemented.
 
-Removed inherited functionality: Firebase helper, SMTP transport/configuration, FCM device-token endpoint/storage, and their direct Firebase/Nodemailer dependencies. The already-used google-auth-library 9.15.1 is now declared directly: Firebase previously supplied it transitively, and retaining the existing Google mobile verifier requires it after Firebase removal. Google authentication is optional and defaults off. Existing Docker migration/seed behavior is unchanged.
+Removed inherited functionality: Firebase helper, SMTP transport/configuration, FCM device-token endpoint/storage, and their direct Firebase/Nodemailer dependencies. Google authentication was previously optional; it has since been removed with its verifier and Passport strategy dependencies. The legacy googleId database column remains to preserve existing account data. Existing Docker migration/seed behavior is unchanged.
 
 ## Prepared structure
 
@@ -129,11 +129,11 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 
 ## Verified handoff (2026-10-22)
 
-- Clean npm ci completed; the retained Google verifier dependency is explicit in the lockfile. npm reported 71 dependency advisories (2 low, 10 moderate, 58 high, 1 critical); no broad dependency upgrades were applied.
+- Clean npm ci completed for the earlier foundation state. At that point the Google verifier dependency was explicit in the lockfile; it has since been removed with Google authentication. npm reported 71 dependency advisories (2 low, 10 moderate, 58 high, 1 critical); no broad dependency upgrades were applied.
 - npm run lint and npm run build passed. npm test passed eight unit tests.
 - npm run test:integration passed six PostgreSQL/HTTP scenarios (seven runner tests including the parent), including guarded rollback for oversized refresh tokens. Its container was removed afterward; no configured application database or seed was used.
 - Both Compose configuration checks passed with the existing obsolete-version warning. Root documentation links were checked against local files.
-- Host checks used Node 24.19.0 and PostgreSQL 16 Alpine; the Docker Node 20 production image was not built or deployed. Provider-backed Google authentication remains unverified.
+- Host checks used Node 24.19.0 and PostgreSQL 16 Alpine; the Docker Node 20 production image was not built or deployed. Google authentication is no longer part of the current runtime.
 
 ## Migration history recovery
 

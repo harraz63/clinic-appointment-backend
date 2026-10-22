@@ -1,4 +1,4 @@
-import { DataTypes, Model, Optional } from 'sequelize';
+import { DataTypes, Model, Optional, Transaction } from 'sequelize';
 import { sequelize } from '../../../../database/db-config.js';
 import { Roles, Role } from '../../../../constants/roles.js';
 import { comparePasswords, hashPassword } from '../../../../utils/password.utils.js';
@@ -33,8 +33,8 @@ export class UserModel extends Model {
         return generateAuthToken.call(this, sessionId);
     }
 
-    public async generateRefreshToken(sessionId: string): Promise<string> {
-        return generateRefreshToken.call(this, sessionId);
+    public async generateRefreshToken(sessionId: string, transaction?: Transaction): Promise<string> {
+        return generateRefreshToken.call(this, sessionId, transaction);
     }
 
     public async validatePassword(password: string): Promise<boolean> {

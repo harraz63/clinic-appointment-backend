@@ -14,10 +14,9 @@ HTTP client
 Express API
     |-- PostgreSQL: users, user_sessions, media, SequelizeMeta
     |-- StorageFactory: local public/uploads, Amazon S3, or Cloudflare R2
-    `-- Google identity verification: web strategy and mobile ID-token handler
 
 Compose also provisions Redis; the API has no Redis integration.
-Firebase, SMTP, and FCM scaffolding have been removed. Google authentication is optional and disabled by default.
+Firebase, SMTP, FCM, and Google authentication have been removed.
 ```
 
 `src/index.ts` creates Express and an HTTP server, authenticates the database connection, calls Passport configuration, installs middleware/routes, and starts listening on `env.PORT`. Startup database initialization authenticates only; it does not synchronize models, run migrations, or seed. Swagger UI is served at `/api/docs`, its OpenAPI document is served at `/api/docs/openapi.json`, and the startup log reports the docs URL. No Socket.IO server exists. There are no shutdown signal handlers for closing the server and database pool.
@@ -47,7 +46,7 @@ Some current handlers directly access models, and media routes have no authentic
 | `/api/docs` | Swagger UI for the implemented HTTP API | Public |
 | `/api/docs/openapi.json` | OpenAPI 3 document | Public |
 | `/api/constant` | Role constants | Public |
-| `/api/v1/auth` | Registration, login, refresh, logout, Google authentication, self-profile/password | Mixed public and authenticated routes |
+| `/api/v1/auth` | Registration, login, refresh, logout, self-profile/password | Mixed public and authenticated routes |
 | `/api/v1/users` | User create/filter/read/update/delete | Authenticated `admin` |
 | `/api/v1/media` | Upload, bytes, and metadata retrieval | Public |
 
@@ -74,9 +73,9 @@ The clinic roles are admin, doctor, and customer. Roles.USER is a compatibility 
 
 Public registration accepts provider, name, and password, rejects role/isVerified/isBlocked, and forces customer in the service. Self-profile validation forbids administrative fields. Passwords use bcrypt cost 12. Default queries exclude passwords, and model serialization removes them even with password-inclusive scopes.
 
-Login rejects blocked accounts and creates a persisted session. Access tokens retain the existing 15-hour lifetime; refresh tokens last seven days. Access authentication and refresh require a matching, unexpired session belonging to an existing unblocked user. Invalid refresh JWTs and missing sessions return expected authentication errors. Refresh rotates the stored token; logout destroys its session.
+Login rejects blocked accounts and creates a persisted session. Access tokens retain the existing 15-hour lifetime; refresh tokens last seven days. Access authentication and refresh require a matching, unexpired session belonging to an existing unblocked user. Invalid refresh JWTs and missing sessions return expected authentication errors. Refresh rotates the stored token while holding a database row lock, so a concurrent request with the previous token fails. Logout destroys its session.
 
-Password changes now retrieve the hash explicitly; session revocation on password change and concurrency-safe refresh remain future improvements. Google routes are mounted only with GOOGLE_AUTH_ENABLED=true; the web callback disables Passport sessions. Google provider integration is not end-to-end verified by local tests. No push token endpoint remains.
+Password changes verify the current hash, save the new password, and revoke every user session in one transaction. Existing accounts may retain a legacy Google ID in the database, but Google sign-in is not implemented; accounts without passwords need a password set before they can sign in. No push token endpoint remains.
 
 ## Storage and supporting integrations
 
@@ -92,13 +91,13 @@ Arabic and English JSON translations live under `src/i18n/local`, with Arabic as
 
 ## Configuration, security, and verification baseline
 
-Zod validates configuration in src/config/env.ts. Storage settings remain conditional by provider. Google authentication defaults off; enabled Google authentication requires client ID, secret, and callback URL. SMTP settings are removed. CLINIC_CURRENCY defaults to EGP and validates three uppercase letters; doctor model creation uses this default. Examples and the README table track these settings.
+Zod validates configuration in src/config/env.ts. Storage settings remain conditional by provider. SMTP and Google authentication settings have been removed. CLINIC_CURRENCY defaults to EGP and validates three uppercase letters; doctor model creation uses this default. Examples and the README table track these settings.
 
 Database hostname fallback still only rewrites db to localhost outside Docker. REDIS_URL remains unused by application code. SQL logging is disabled, and connection/authentication logs no longer include database URLs or user objects.
 
 Original checks failed with six source lint errors plus generated-output errors, missing Firebase credentials, and a placeholder npm test. The foundation removes those build blockers, excludes dist from linting, and adds Node/tsx unit and Docker integration suites. See README commands and CLINIC_FOUNDATION verification notes for actual results.
 
-Remaining limitations include public media, no production upload volume, seed password resets on every Docker startup, no graceful shutdown, in-memory rate limiting, no booking concurrency controls, and no CI/deployment workflow. Google provider-backed tests have not been run. Password changes do not revoke sessions; refresh rotation remains susceptible to concurrent requests.
+Remaining limitations include public media, no production upload volume, seed password resets on every Docker startup, no graceful shutdown, in-memory rate limiting, no booking concurrency controls, and no CI/deployment workflow. Password changes revoke all sessions and refresh rotation is serialized per session.
 
 Follow [AGENTS.md](./AGENTS.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md); setup and command details are in [README.md](./README.md).
 

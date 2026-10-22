@@ -25,13 +25,6 @@ export const refreshTokenSchema = Joi.object({
     })
 });
 
-export const googleMobileSchema = Joi.object({
-    idToken: Joi.string().required().messages({
-        'any.required': 'Google idToken is required',
-        'string.empty': 'Google idToken cannot be empty'
-    })
-});
-
 export const logoutSchema = refreshTokenSchema;
 
 export const changePasswordSchema = Joi.object({
