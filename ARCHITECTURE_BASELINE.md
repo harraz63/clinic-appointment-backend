@@ -2,7 +2,7 @@
 
 ## Purpose and implementation boundary
 
-This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules now provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Clinic CRUD, scheduling, booking, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
+This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Admin branch/specialty catalog CRUD and public active browsing are implemented; doctor management, scheduling, booking, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
 
 The package is clinic-appointment-backend version 1.0.0. The runtime remains Express 4, TypeScript with native ESM/NodeNext and strict:false, Sequelize 6, and PostgreSQL. Docker targets Node.js 20, PostgreSQL 16, and Redis 7.
 
@@ -49,6 +49,8 @@ Some current handlers directly access models, and media routes have no authentic
 | `/api/constant` | Role constants | Public |
 | `/api/v1/auth` | Registration, login, refresh, logout, self-profile/password | Mixed public and authenticated routes |
 | `/api/v1/users` | User create/filter/read/update/delete | Authenticated `admin` |
+| `/api/v1/branches`, `/api/v1/specialties` | Public active catalog lists with bilingual name search and pagination | Public |
+| `/api/v1/admin/branches`, `/api/v1/admin/specialties` | Catalog CRUD and filtered pagination | Authenticated `admin` |
 | `/api/v1/media` | Upload, bytes, and metadata retrieval | Public |
 
 Versioned modules live in `src/modules/<domain>/v1`; constants are an unversioned exception. See [README.md](./README.md) for individual endpoints.

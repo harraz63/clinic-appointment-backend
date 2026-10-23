@@ -150,6 +150,8 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const openapi = await request('/api/docs/openapi.json');
         assert.equal(openapi.body.openapi, '3.0.3');
         assert.ok(openapi.body.components.schemas.Success);
+        assert.ok(openapi.body.paths['/api/v1/branches'].get);
+        assert.ok(openapi.body.paths['/api/v1/admin/specialties/{id}'].delete);
         const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
         const invalid = await request('/api/v1/auth/register', 'POST', { ...registration, role: 'doctor' });
         assert.equal(invalid.status, 422);
@@ -218,6 +220,107 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/auth/google/mobile', 'POST', { idToken: 'unused' }, accessToken)).status, 404);
         assert.equal((await request('/api/v1/user-session/fcm-token', 'PATCH', { fcmToken: 'unused' })).status, 404);
     });
+    await t.test('branch and specialty APIs enforce access, search, pagination and reference-safe deletion', async () => {
+        const adminLogin = await request('/api/v1/auth/login', 'POST', { phone: '01112345678', password: 'TestOnly#123' });
+        const adminToken = adminLogin.body.data.accessToken.token as string;
+        assert.equal((await request('/api/v1/admin/branches', 'GET')).status, 401);
+        assert.equal((await request('/api/v1/admin/specialties', 'GET', undefined, accessToken)).status, 403);
+
+        const branchInput = (en: string, ar: string, isActive = true) => ({
+            name: { en, ar }, address: { en: en + ' address', ar: ar + ' عنوان' }, isActive,
+        });
+        const specialtyInput = (en: string, ar: string, isActive = true) => ({ name: { en, ar }, isActive });
+
+        const firstBranchResponse = await request('/api/v1/admin/branches', 'POST', branchInput('Nile Clinic', 'عيادة النيل'), adminToken);
+        assert.equal(firstBranchResponse.status, 201);
+        const firstBranch = firstBranchResponse.body.data.branch;
+        assert.equal(firstBranch.timezone, 'Africa/Cairo');
+        const secondBranchResponse = await request('/api/v1/admin/branches', 'POST', branchInput('Cairo Clinic', 'عيادة القاهرة'), adminToken);
+        const secondBranch = secondBranchResponse.body.data.branch;
+        const inactiveBranchResponse = await request('/api/v1/admin/branches', 'POST', branchInput('Hidden Clinic', 'عيادة مخفية', false), adminToken);
+        const inactiveBranch = inactiveBranchResponse.body.data.branch;
+        const firstSpecialtyResponse = await request('/api/v1/admin/specialties', 'POST', specialtyInput('Cardiology', 'أمراض القلب'), adminToken);
+        assert.equal(firstSpecialtyResponse.status, 201);
+        const firstSpecialty = firstSpecialtyResponse.body.data.specialty;
+        const secondSpecialtyResponse = await request('/api/v1/admin/specialties', 'POST', specialtyInput('Neurology', 'طب الأعصاب'), adminToken);
+        const secondSpecialty = secondSpecialtyResponse.body.data.specialty;
+        const inactiveSpecialtyResponse = await request('/api/v1/admin/specialties', 'POST', specialtyInput('Hidden Specialty', 'تخصص مخفي', false), adminToken);
+        const inactiveSpecialty = inactiveSpecialtyResponse.body.data.specialty;
+
+        const publicBranches = await request('/api/v1/branches?search=clinic&page=1&limit=1');
+        assert.equal(publicBranches.status, 200);
+        assert.equal(publicBranches.body.data.page, 1);
+        assert.equal(publicBranches.body.data.limit, 1);
+        assert.equal(publicBranches.body.data.total, 2);
+        assert.equal(publicBranches.body.data.items.length, 1);
+        assert.equal(publicBranches.body.data.items[0].isActive, true);
+        const emptyBranches = await request('/api/v1/branches?search=missing');
+        assert.deepEqual(emptyBranches.body.data.items, []);
+        assert.equal(emptyBranches.body.data.total, 0);
+        const arabicBranches = await request('/api/v1/branches?search=%D8%A7%D9%84%D9%86%D9%8A%D9%84');
+        assert.equal(arabicBranches.body.data.total, 1);
+        assert.equal(arabicBranches.body.data.items[0].id, firstBranch.id);
+        const publicSpecialties = await request('/api/v1/specialties?search=cardio');
+        assert.equal(publicSpecialties.body.data.total, 1);
+        assert.equal(publicSpecialties.body.data.items[0].id, firstSpecialty.id);
+        const allPublicSpecialties = await request('/api/v1/specialties');
+        assert.equal(allPublicSpecialties.body.data.total, 2);
+        assert.equal(allPublicSpecialties.body.data.page, 1);
+        assert.equal(allPublicSpecialties.body.data.limit, 10);
+        const emptySpecialties = await request('/api/v1/specialties?search=missing');
+        assert.deepEqual(emptySpecialties.body.data.items, []);
+        assert.equal(emptySpecialties.body.data.total, 0);
+        const arabicSpecialties = await request('/api/v1/specialties?search=%D8%A7%D9%84%D8%A3%D8%B9%D8%B5%D8%A7%D8%A8');
+        assert.equal(arabicSpecialties.body.data.total, 1);
+        assert.equal(arabicSpecialties.body.data.items[0].id, secondSpecialty.id);
+        const invalidPagination = await request('/api/v1/branches?limit=101');
+        assert.equal(invalidPagination.status, 422);
+
+        const adminInactiveBranches = await request('/api/v1/admin/branches?isActive=false&search=hidden', 'GET', undefined, adminToken);
+        assert.equal(adminInactiveBranches.body.data.total, 1);
+        assert.equal(adminInactiveBranches.body.data.items[0].id, inactiveBranch.id);
+        const adminInactiveSpecialties = await request('/api/v1/admin/specialties?isActive=false&search=hidden', 'GET', undefined, adminToken);
+        assert.equal(adminInactiveSpecialties.body.data.total, 1);
+        assert.equal(adminInactiveSpecialties.body.data.items[0].id, inactiveSpecialty.id);
+
+        const updatedBranch = await request('/api/v1/admin/branches/' + secondBranch.id, 'PATCH', { phone: '+201001234567' }, adminToken);
+        assert.equal(updatedBranch.status, 200);
+        assert.equal(updatedBranch.body.data.branch.phone, '+201001234567');
+        assert.equal((await request('/api/v1/admin/branches/' + secondBranch.id, 'PATCH', {}, adminToken)).status, 422);
+        const updatedSpecialty = await request('/api/v1/admin/specialties/' + secondSpecialty.id, 'PATCH', { description: { en: 'Nerves', ar: 'الأعصاب' } }, adminToken);
+        assert.equal(updatedSpecialty.status, 200);
+        assert.equal(updatedSpecialty.body.data.specialty.description.en, 'Nerves');
+        assert.equal((await request('/api/v1/admin/branches/' + randomUUID(), 'GET', undefined, adminToken)).status, 404);
+        assert.equal((await request('/api/v1/admin/specialties/' + randomUUID(), 'GET', undefined, adminToken)).status, 404);
+
+        const { UserService } = await import('../../src/modules/user/v1/user.service.js');
+        const { DoctorModel } = await import('../../src/modules/doctors/v1/model/doctor.model.js');
+        const doctorUser = await UserService.createUser({ phone: '01511112222', name: 'Catalog Doctor', role: Roles.DOCTOR, isVerified: true });
+        const doctor = await DoctorModel.create({
+            userId: doctorUser.id, branchId: firstBranch.id, specialtyId: firstSpecialty.id,
+            name: { en: 'Catalog Doctor', ar: 'طبيب الفهرس' }, appointmentPrice: '100.00',
+            currency: 'EGP', appointmentDurationMinutes: 30,
+        });
+        const { AppointmentModel } = await import('../../src/modules/appointments/v1/model/appointment.model.js');
+        await AppointmentModel.create({
+            doctorId: doctor.id, customerId, branchId: firstBranch.id,
+            startsAt: new Date('2026-10-25T08:00:00.000Z'), endsAt: new Date('2026-10-25T08:30:00.000Z'),
+            timezone: 'Africa/Cairo', durationMinutes: 30, bookedPrice: '100.00', currency: 'EGP',
+        });
+
+        const deactivatedBranch = await request('/api/v1/admin/branches/' + firstBranch.id, 'DELETE', undefined, adminToken);
+        assert.equal(deactivatedBranch.status, 200);
+        assert.equal(deactivatedBranch.body.data.branch.isActive, false);
+        const deactivatedSpecialty = await request('/api/v1/admin/specialties/' + firstSpecialty.id, 'DELETE', undefined, adminToken);
+        assert.equal(deactivatedSpecialty.body.data.specialty.isActive, false);
+        const deletedBranch = await request('/api/v1/admin/branches/' + secondBranch.id, 'DELETE', undefined, adminToken);
+        assert.equal(deletedBranch.status, 200);
+        assert.equal((await request('/api/v1/admin/branches/' + secondBranch.id, 'GET', undefined, adminToken)).status, 404);
+        const deletedSpecialty = await request('/api/v1/admin/specialties/' + secondSpecialty.id, 'DELETE', undefined, adminToken);
+        assert.equal(deletedSpecialty.status, 200);
+        assert.equal((await request('/api/v1/admin/specialties/' + secondSpecialty.id, 'GET', undefined, adminToken)).status, 404);
+    });
+
     await t.test('customer can reset password and verify a phone change through returned OTPs', async () => {
         const forgot = await request('/api/v1/auth/forgot-password', 'POST', { phone: '01012345678' });
         const resetOtp = forgot.body.data.otp as string;

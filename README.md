@@ -1,6 +1,6 @@
 # Clinic Appointment Backend
 
-Express and TypeScript backend foundation for a clinic appointment project. The repository provides authentication, users, sessions, and public media APIs, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Clinic business endpoints, scheduling, payments, inbox delivery, dashboards, and medical records are not implemented.
+Express and TypeScript backend foundation for a clinic appointment project. The repository provides authentication, users, sessions, public media, and branch/specialty catalog APIs, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Doctor management, scheduling, bookings, payments, inbox delivery, dashboards, and medical records are not implemented.
 
 The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for relationships, future APIs, RBAC, bilingual data, and the implementation roadmap.
 
@@ -11,7 +11,8 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Authentication | Egyptian phone registration with OTP verification, phone/password login, password recovery, verified customer phone changes, JWT/session refresh and logout |
 | Users | Administrator CRUD/filter routes and authenticated self-profile read/update/delete routes |
 | Sessions | Persisted refresh tokens, session ownership/expiration and blocked-account checks |
-| Clinic foundation | Branches, specialties, doctors, schedules/exceptions, appointments, payments, inbox models, and dashboard contracts; no business endpoints |
+| Clinic catalog | Admin branch/specialty CRUD and public active browsing with bilingual name search and pagination |
+| Clinic foundation | Doctor, schedule/exception, appointment, payment, inbox models, and dashboard contracts; workflows remain unimplemented |
 | Media | Public multipart upload, file retrieval, and metadata using local, S3, or R2 storage |
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
@@ -203,12 +204,20 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | GET | `/api/v1/users/:id` | Admin | Read UUID user |
 | PATCH | `/api/v1/users/:id` | Admin | Update UUID user; name/phone/password optional |
 | DELETE | `/api/v1/users/:id` | Admin | Delete UUID user |
+| GET | `/api/v1/branches` | Public | Browse active branches; optional bilingual name `search`, `page`, `limit` |
+| GET | `/api/v1/specialties` | Public | Browse active specialties; optional bilingual name `search`, `page`, `limit` |
+| GET/POST | `/api/v1/admin/branches` | Admin | Paginated/searchable branch list with optional `isActive`; create bilingual branch |
+| GET/PATCH/DELETE | `/api/v1/admin/branches/:id` | Admin | Read/update branch; delete when unreferenced or deactivate when referenced |
+| GET/POST | `/api/v1/admin/specialties` | Admin | Paginated/searchable specialty list with optional `isActive`; create bilingual specialty |
+| GET/PATCH/DELETE | `/api/v1/admin/specialties/:id` | Admin | Read/update specialty; delete when unreferenced or deactivate when referenced |
 | POST | `/api/v1/media/upload` | Public | Multipart file in field `media` |
 | GET | `/api/v1/media/:id/info` | Public | Media metadata |
 | GET | `/api/v1/media/:id` | Public | Media bytes with stored content type |
 | GET | `/uploads/<key>` | Public | Static local files, when present |
 
 User filtering accepts `page`, `limit`, `phone`, `name`, `role`, `isVerified`, and `isBlocked`; no matching rows return 404. Name and phone filters use PostgreSQL case-insensitive matching. Controllers explicitly supply omitted pagination defaults. Joi still validates merged request fields without writing normalized values back to the request.
+
+Branch and specialty catalog lists use `page` (default 1), `limit` (default 10, maximum 100), case-insensitive `search` across Arabic and English names, and return `{ items, page, limit, total, totalPages }`. Public lists include active records only; admin lists may filter `isActive`. Admin deletion deactivates records referenced by doctors, and branches referenced by appointments; otherwise the record is removed.
 
 All JSON success responses use `{ status: "success", data: ... }`. This includes metadata, health, constants, auth, users, and media upload/metadata. Actions without a result return `data: null`. Health diagnostics are nested in `data` for both healthy and degraded responses. Binary media downloads and the OpenAPI document keep their native formats.
 

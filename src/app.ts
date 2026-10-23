@@ -13,6 +13,8 @@ import { constantRouter } from './modules/constant/constant.routes.js';
 import { userRouterV1 } from './modules/user/v1/user.routes.js';
 import { authRouterV1 } from './modules/auth/v1/auth.routes.js';
 import { mediaRouterV1 } from './modules/media/v1/media.routes.js';
+import { adminBranchRouterV1, publicBranchRouterV1 } from './modules/branches/v1/branch.routes.js';
+import { adminSpecialtyRouterV1, publicSpecialtyRouterV1 } from './modules/specialties/v1/specialty.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
 
 import { errorMiddleware } from './middleware/error.middleware.js';
@@ -40,6 +42,10 @@ export function initializeApp(app: express.Application) {
     app.use('/api/v1/users', userRouterV1);
     app.use('/api/v1/auth', authRouterV1);
     app.use('/api/v1/media', mediaRouterV1);
+    app.use('/api/v1/branches', publicBranchRouterV1);
+    app.use('/api/v1/specialties', publicSpecialtyRouterV1);
+    app.use('/api/v1/admin/branches', adminBranchRouterV1);
+    app.use('/api/v1/admin/specialties', adminSpecialtyRouterV1);
 
     app.use(notFoundMiddleware);
     app.use(errorMiddleware);

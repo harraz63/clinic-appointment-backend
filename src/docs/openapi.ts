@@ -38,6 +38,8 @@ export const openapiDocument = {
         { name: 'Metadata' },
         { name: 'Authentication' },
         { name: 'Users' },
+        { name: 'Branches' },
+        { name: 'Specialties' },
         { name: 'Media' },
     ],
     paths: {
@@ -67,6 +69,124 @@ export const openapiDocument = {
                 summary: 'Get supported roles',
                 responses: successResponse,
             },
+        },
+        '/api/v1/branches': {
+            get: {
+                tags: ['Branches'],
+                summary: 'Browse active branches',
+                parameters: [
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 }, description: 'Case-insensitive match against Arabic or English branch names' },
+                    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+                    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+                ],
+                responses: { ...successResponse, ...validationError },
+            },
+        },
+        '/api/v1/specialties': {
+            get: {
+                tags: ['Specialties'],
+                summary: 'Browse active specialties',
+                parameters: [
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 }, description: 'Case-insensitive match against Arabic or English specialty names' },
+                    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+                    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+                ],
+                responses: { ...successResponse, ...validationError },
+            },
+        },
+        '/api/v1/admin/branches': {
+            get: {
+                tags: ['Branches'],
+                summary: 'List branches (admin only)',
+                security: secured,
+                parameters: [
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 } },
+                    { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
+                    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+                    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+                ],
+                responses: { ...successResponse, ...validationError },
+            },
+            post: {
+                tags: ['Branches'],
+                summary: 'Create a branch (admin only)',
+                security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', required: ['name', 'address'], additionalProperties: false,
+                    properties: {
+                        name: { $ref: '#/components/schemas/LocalizedText' },
+                        description: { $ref: '#/components/schemas/LocalizedText' },
+                        address: { $ref: '#/components/schemas/LocalizedText' },
+                        phone: { type: 'string' }, email: { type: 'string', format: 'email' },
+                        timezone: { type: 'string', default: 'Africa/Cairo' }, isActive: { type: 'boolean', default: true },
+                    },
+                }),
+                responses: { ...createdResponse, ...validationError },
+            },
+        },
+        '/api/v1/admin/branches/{id}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Branches'], summary: 'Get a branch (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Branch not found' } } },
+            patch: {
+                tags: ['Branches'], summary: 'Update a branch (admin only)', security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', minProperties: 1, additionalProperties: false,
+                    properties: {
+                        name: { $ref: '#/components/schemas/LocalizedText' },
+                        description: { $ref: '#/components/schemas/LocalizedText' },
+                        address: { $ref: '#/components/schemas/LocalizedText' },
+                        phone: { type: 'string' }, email: { type: 'string', format: 'email' },
+                        timezone: { type: 'string' }, isActive: { type: 'boolean' },
+                    },
+                }),
+                responses: { ...successResponse, ...validationError, '404': { description: 'Branch not found' } },
+            },
+            delete: { tags: ['Branches'], summary: 'Delete or deactivate a branch (admin only)', security: secured, responses: { ...successResponse, ...validationError, '404': { description: 'Branch not found' } } },
+        },
+        '/api/v1/admin/specialties': {
+            get: {
+                tags: ['Specialties'],
+                summary: 'List specialties (admin only)',
+                security: secured,
+                parameters: [
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 } },
+                    { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
+                    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+                    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+                ],
+                responses: { ...successResponse, ...validationError },
+            },
+            post: {
+                tags: ['Specialties'],
+                summary: 'Create a specialty (admin only)',
+                security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', required: ['name'], additionalProperties: false,
+                    properties: {
+                        name: { $ref: '#/components/schemas/LocalizedText' },
+                        description: { $ref: '#/components/schemas/LocalizedText' },
+                        isActive: { type: 'boolean', default: true },
+                    },
+                }),
+                responses: { ...createdResponse, ...validationError },
+            },
+        },
+        '/api/v1/admin/specialties/{id}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Specialties'], summary: 'Get a specialty (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Specialty not found' } } },
+            patch: {
+                tags: ['Specialties'], summary: 'Update a specialty (admin only)', security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', minProperties: 1, additionalProperties: false,
+                    properties: {
+                        name: { $ref: '#/components/schemas/LocalizedText' },
+                        description: { $ref: '#/components/schemas/LocalizedText' },
+                        isActive: { type: 'boolean' },
+                    },
+                }),
+                responses: { ...successResponse, ...validationError, '404': { description: 'Specialty not found' } },
+            },
+            delete: { tags: ['Specialties'], summary: 'Delete or deactivate a specialty (admin only)', security: secured, responses: { ...successResponse, ...validationError, '404': { description: 'Specialty not found' } } },
         },
         '/api/v1/auth/register': {
             post: {
@@ -282,6 +402,10 @@ export const openapiDocument = {
             bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         },
         schemas: {
+            LocalizedText: {
+                type: 'object', required: ['ar', 'en'], additionalProperties: false,
+                properties: { ar: { type: 'string', minLength: 1 }, en: { type: 'string', minLength: 1 } },
+            },
             Success: {
                 type: 'object',
                 required: ['status', 'data'],
