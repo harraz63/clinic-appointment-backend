@@ -10,10 +10,17 @@ import express from 'express';
 // Always creates its own loopback-only disposable database; never uses the local .env DB_URI.
 test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }, async t => {
     const container = 'clinic-foundation-test-' + randomUUID();
+    const redisContainer = 'clinic-redis-test-' + randomUUID();
     const docker = (...args: string[]) => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    let cleanupResources = async (): Promise<void> => {};
+    t.after(async () => {
+        await cleanupResources();
+        docker('rm', '-f', redisContainer);
+        docker('rm', '-f', '-v', container);
+    });
     docker('run', '-d', '--rm', '--name', container, '-e', 'POSTGRES_HOST_AUTH_METHOD=trust',
         '-e', 'POSTGRES_DB=clinic_tests', '-p', '127.0.0.1::5432', 'postgres:16-alpine');
-    t.after(() => { docker('rm', '-f', '-v', container); });
+    docker('run', '-d', '--rm', '--name', redisContainer, '-p', '127.0.0.1::6379', 'redis:7-alpine');
     let ready = false;
     for (let attempt = 0; attempt < 100; attempt++) {
         try { docker('exec', container, 'pg_isready', '-U', 'postgres', '-d', 'clinic_tests'); ready = true; break; }
@@ -22,15 +29,27 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     assert.ok(ready, 'disposable PostgreSQL must become ready');
     const binding = docker('port', container, '5432/tcp');
     process.env.DB_URI = 'postgres://postgres@' + binding + '/clinic_tests';
+    const redisBinding = docker('port', redisContainer, '6379/tcp');
+    process.env.REDIS_URL = 'redis://' + redisBinding;
+    process.env.OTP_HMAC_SECRET = 'isolated-integration-secret-at-least-32-characters';
+    process.env.OTP_RESEND_COOLDOWN_SECONDS = '1';
+    let redisReady = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+        try { docker('exec', redisContainer, 'redis-cli', 'ping'); redisReady = true; break; }
+        catch { await setTimeout(250); }
+    }
+    assert.ok(redisReady, 'disposable Redis must become ready');
     const { sequelize } = await import('../../src/database/db-config.js');
-    t.after(async () => { await sequelize.close(); });
     const qi = sequelize.getQueryInterface();
     const roles = await import('../../src/database/migrations/002-clinic-roles.js');
     const clinic = await import('../../src/database/migrations/003-clinic-foundation.js');
+    const userPhoneMigration = await import('../../src/database/migrations/004-user-phone.js');
     const { UserModel } = await import('../../src/modules/user/v1/model/user.model.js');
     const { UserSessionModel } = await import('../../src/modules/user-session/v1/model/user-session.entity.js');
     const { UserService } = await import('../../src/modules/user/v1/user.service.js');
     const { Roles } = await import('../../src/constants/roles.js');
+    const { initializeRedis, closeRedis } = await import('../../src/config/redis.js');
+    await initializeRedis();
 
     await t.test('registered migrations install a fresh schema and skip previously applied entries', async () => {
         const status = execFileSync(process.execPath,
@@ -40,7 +59,14 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         for (let i = 0; i < 2; i++) execFileSync(process.execPath,
             ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', 'up'], { env: process.env, stdio: 'pipe' });
         const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta" ORDER BY name');
-        assert.equal(rows.length, 3);
+        assert.equal(rows.length, 4);
+        const userColumns = await qi.describeTable('users');
+        assert.equal('phone' in userColumns, true);
+        assert.equal('provider' in userColumns, false);
+        await userPhoneMigration.down(qi, sequelize);
+        assert.equal('provider' in await qi.describeTable('users'), true);
+        await userPhoneMigration.up(qi, sequelize);
+        assert.equal('phone' in await qi.describeTable('users'), true);
         const columns = await qi.describeTable('user_sessions');
         assert.equal('fcmToken' in columns, false);
         const [cash] = await sequelize.query('SELECT name FROM payment_methods WHERE code = \'cash\'');
@@ -63,7 +89,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
             }
             assert.deepEqual(await qi.showAllTables(), before);
             const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta"');
-            assert.equal(rows.length, 4);
+            assert.equal(rows.length, 5);
         } finally {
             await sequelize.query('DELETE FROM "SequelizeMeta" WHERE name = :name', { replacements: { name: marker } });
         }
@@ -78,7 +104,12 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     initializeApp(app);
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
-    t.after(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    cleanupResources = async () => {
+        server.closeAllConnections();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+        await closeRedis();
+        await sequelize.close();
+    };
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
     const base = 'http://127.0.0.1:' + address.port;
@@ -92,7 +123,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     let refreshToken: string;
     let customerId: string;
     let adminId: string;
-    await t.test('metadata, health, registration, login and protected profile work without provider configuration', async () => {
+    await t.test('metadata, health and phone OTP registration work with authenticated profiles', async () => {
         const metadata = await request('/');
         assert.equal(metadata.status, 200);
         assert.equal(metadata.body.status, 'success');
@@ -119,19 +150,39 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const openapi = await request('/api/docs/openapi.json');
         assert.equal(openapi.body.openapi, '3.0.3');
         assert.ok(openapi.body.components.schemas.Success);
-        const registration = { provider: 'patient@example.com', name: 'Test Patient', password: 'TestOnly#123' };
+        const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
         const invalid = await request('/api/v1/auth/register', 'POST', { ...registration, role: 'doctor' });
         assert.equal(invalid.status, 422);
         assert.equal(invalid.body.status, 'fail');
         assert.equal(invalid.body.statusCode, 422);
         assert.equal(typeof invalid.body.message, 'string');
         const registered = await request('/api/v1/auth/register', 'POST', registration);
-        assert.equal(registered.status, 201);
+        assert.equal(registered.status, 202);
         assert.equal(registered.body.status, 'success');
-        assert.equal(registered.body.data.user.role, 'customer');
-        assert.equal('password' in registered.body.data.user, false);
-        customerId = registered.body.data.user.id;
-        const login = await request('/api/v1/auth/login', 'POST', { provider: registration.provider, password: registration.password });
+        assert.match(registered.body.data.otp, /^\d{6}$/);
+        const unknownReset = await request('/api/v1/auth/forgot-password', 'POST', { phone: '01098765432' });
+        assert.equal(unknownReset.status, 202);
+        assert.equal(unknownReset.body.data, null);
+        const immediateResend = await request('/api/v1/auth/send-otp', 'POST', { phone: registration.phone, type: 'register' });
+        assert.equal(immediateResend.status, 429);
+        const actualOtp = registered.body.data.otp as string;
+        const wrongOtp = actualOtp === '000000' ? '000001' : '000000';
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const invalidOtp = await request('/api/v1/auth/register/verify', 'POST', { phone: registration.phone, otp: wrongOtp });
+            assert.equal(invalidOtp.status, 422);
+        }
+        await setTimeout(1100);
+        const resent = await request('/api/v1/auth/send-otp', 'POST', { phone: registration.phone, type: 'register' });
+        assert.equal(resent.status, 202);
+        assert.match(resent.body.data.otp, /^\d{6}$/);
+        const verified = await request('/api/v1/auth/register/verify', 'POST', { phone: registration.phone, otp: resent.body.data.otp });
+        assert.equal(verified.status, 200);
+        assert.equal(verified.body.data.user.role, 'customer');
+        assert.equal(verified.body.data.user.phone, '+201012345678');
+        assert.equal('password' in verified.body.data.user, false);
+        assert.equal('otp' in verified.body, false);
+        customerId = verified.body.data.user.id;
+        const login = await request('/api/v1/auth/login', 'POST', { phone: registration.phone, password: registration.password });
         assert.equal(login.status, 200);
         assert.equal(login.body.status, 'success');
         assert.equal('password' in login.body.data.user, false);
@@ -144,9 +195,9 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const invalidProfile = await request('/api/v1/auth/me', 'PATCH', { isBlocked: true }, accessToken);
         assert.equal(invalidProfile.status, 422);
         assert.equal(invalidProfile.body.status, 'fail');
-        const admin = await UserService.createUser({ provider: 'admin@example.com', name: 'Test Admin', password: 'TestOnly#123', role: Roles.ADMIN });
+        const admin = await UserService.createUser({ phone: '01112345678', name: 'Test Admin', password: 'TestOnly#123', role: Roles.ADMIN, isVerified: true });
         adminId = admin.id;
-        const adminLogin = await request('/api/v1/auth/login', 'POST', { provider: admin.provider, password: 'TestOnly#123' });
+        const adminLogin = await request('/api/v1/auth/login', 'POST', { phone: admin.phone, password: 'TestOnly#123' });
         assert.equal(adminLogin.status, 200);
         const filtered = await request('/api/v1/users/filter?name=patient&role=customer', 'GET', undefined, adminLogin.body.data.accessToken.token);
         assert.equal(filtered.status, 200);
@@ -167,7 +218,34 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/auth/google/mobile', 'POST', { idToken: 'unused' }, accessToken)).status, 404);
         assert.equal((await request('/api/v1/user-session/fcm-token', 'PATCH', { fcmToken: 'unused' })).status, 404);
     });
+    await t.test('customer can reset password and verify a phone change through returned OTPs', async () => {
+        const forgot = await request('/api/v1/auth/forgot-password', 'POST', { phone: '01012345678' });
+        const resetOtp = forgot.body.data.otp as string;
+        assert.match(resetOtp, /^\d{6}$/);
+        const reset = await request('/api/v1/auth/reset-password', 'POST', {
+            phone: '01012345678', otp: resetOtp, newPassword: 'ResetOnly#456'
+        });
+        assert.equal(reset.status, 200);
+        assert.equal(await UserSessionModel.count({ where: { userId: customerId } }), 0);
+
+        const login = await request('/api/v1/auth/login', 'POST', { phone: '01012345678', password: 'ResetOnly#456' });
+        assert.equal(login.status, 200);
+        const access = login.body.data.accessToken.token;
+        const change = await request('/api/v1/auth/me/phone', 'PATCH', { phone: '01212345678' }, access);
+        assert.equal(change.status, 202);
+        const changeOtp = change.body.data.otp as string;
+        assert.match(changeOtp, /^\d{6}$/);
+        const verified = await request('/api/v1/auth/me/phone/verify', 'POST', { otp: changeOtp }, access);
+        assert.equal(verified.status, 200);
+        assert.equal(verified.body.data.user.phone, '+201212345678');
+        assert.equal((await request('/api/v1/auth/me', 'GET', undefined, access)).status, 200);
+        const cooldown = await request('/api/v1/auth/me/phone', 'PATCH', { phone: '01512345678' }, access);
+        assert.equal(cooldown.status, 429);
+    });
     await t.test('blocked users, deleted sessions and invalid refresh tokens fail cleanly', async () => {
+        const currentLogin = await request('/api/v1/auth/login', 'POST', { phone: '01212345678', password: 'ResetOnly#456' });
+        accessToken = currentLogin.body.data.accessToken.token;
+        refreshToken = currentLogin.body.data.refreshToken;
         await UserSessionModel.update({ expiresAt: new Date(0) }, { where: { userId: customerId } });
         assert.equal((await request('/api/v1/auth/me', 'GET', undefined, accessToken)).status, 401);
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken })).status, 401);
@@ -194,10 +272,10 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/auth/me', 'GET', undefined, accessToken)).status, 401);
     });
     await t.test('password changes transactionally revoke all sessions, only after password validation', async () => {
-        const originalPassword = 'TestOnly#123';
+        const originalPassword = 'ResetOnly#456';
         const newPassword = 'ChangedOnly#456';
-        const firstLogin = await request('/api/v1/auth/login', 'POST', { provider: 'patient@example.com', password: originalPassword });
-        const secondLogin = await request('/api/v1/auth/login', 'POST', { provider: 'patient@example.com', password: originalPassword });
+        const firstLogin = await request('/api/v1/auth/login', 'POST', { phone: '01212345678', password: 'ResetOnly#456' });
+        const secondLogin = await request('/api/v1/auth/login', 'POST', { phone: '01212345678', password: 'ResetOnly#456' });
         assert.equal(firstLogin.status, 200);
         assert.equal(secondLogin.status, 200);
         const firstAccess = firstLogin.body.data.accessToken.token;
@@ -225,10 +303,10 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: firstRefresh })).status, 401);
         assert.equal((await request('/api/v1/auth/refresh-token', 'POST', { refreshToken: secondRefresh })).status, 401);
         assert.equal((await request('/api/v1/auth/login', 'POST', {
-            provider: 'patient@example.com', password: originalPassword
+            phone: '01212345678', password: 'ResetOnly#456'
         })).status, 401);
         assert.equal((await request('/api/v1/auth/login', 'POST', {
-            provider: 'patient@example.com', password: newPassword
+            phone: '01212345678', password: newPassword
         })).status, 200);
     });
     await t.test('models preserve bilingual data, decimal prices and historical branch/price snapshots', async () => {
@@ -240,7 +318,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const branch = await BranchModel.create({ name, address: name });
         const secondBranch = await BranchModel.create({ name, address: name });
         const specialty = await SpecialtyModel.create({ name });
-        const doctorUser = await UserService.createUser({ provider: 'doctor@example.com', name: 'Test Doctor', role: Roles.DOCTOR });
+        const doctorUser = await UserService.createUser({ phone: '01512345678', name: 'Test Doctor', role: Roles.DOCTOR, isVerified: true });
         const doctor = await DoctorModel.create({ userId: doctorUser.id, branchId: branch.id, specialtyId: specialty.id,
             name, appointmentPrice: '125.50', currency: 'EGP', appointmentDurationMinutes: 30 });
         const appointment = await AppointmentModel.create({ doctorId: doctor.id, customerId, branchId: branch.id,
@@ -271,14 +349,14 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal('fcmToken' in await qi.describeTable('user_sessions'), true);
     });
     await t.test('existing user roles convert; incompatible legacy accounts stop without partial changes', async () => {
-        await sequelize.query('INSERT INTO users (id, provider, name, role) VALUES (gen_random_uuid(), \'legacy@example.com\', \'Legacy Manager\', \'manager\')');
+        await sequelize.query('INSERT INTO users (id, phone, name, role) VALUES (gen_random_uuid(), \'+201512345679\', \'Legacy Manager\', \'manager\')');
         await assert.rejects(() => roles.up(qi, sequelize), /Legacy account roles/);
-        const [rows] = await sequelize.query('SELECT role FROM users WHERE provider = \'patient@example.com\'');
+        const [rows] = await sequelize.query('SELECT role FROM users WHERE phone = \'+201212345678\'');
         assert.equal((rows[0] as { role: string }).role, 'user');
         assert.equal('fcmToken' in await qi.describeTable('user_sessions'), true);
-        await sequelize.query('DELETE FROM users WHERE provider = \'legacy@example.com\'');
+        await sequelize.query('DELETE FROM users WHERE phone = \'+201512345679\'');
         await roles.up(qi, sequelize);
-        const [converted] = await sequelize.query('SELECT role FROM users WHERE provider = \'patient@example.com\'');
+        const [converted] = await sequelize.query('SELECT role FROM users WHERE phone = \'+201212345678\'');
         assert.equal((converted[0] as { role: string }).role, 'customer');
         await clinic.up(qi, sequelize);
     });

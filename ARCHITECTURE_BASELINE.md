@@ -13,9 +13,10 @@ HTTP client
     |
 Express API
     |-- PostgreSQL: users, user_sessions, media, SequelizeMeta
+    |-- Redis: pending registrations and OTP state
     |-- StorageFactory: local public/uploads, Amazon S3, or Cloudflare R2
 
-Compose also provisions Redis; the API has no Redis integration.
+Redis backs signup and OTP state. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured.
 Firebase, SMTP, FCM, and Google authentication have been removed.
 ```
 
@@ -58,20 +59,20 @@ Joi validation merges body, params, and query in that order, so later values win
 
 | Table | Implemented state |
 | --- | --- |
-| `users` | UUID ID, unique phone/email `provider`, nullable password, name, role enum, optional unique Google ID, verification/block flags, timestamps |
+| `users` | UUID ID, unique normalized Egyptian `phone`, nullable password, name, role enum, optional unique Google ID, verification/block flags, timestamps |
 | `user_sessions` | UUID ID, user foreign key, unique nullable TEXT refresh token, expiration, timestamps; user deletion cascades |
 | `media` | UUID ID, storage key and URL, original filename, content/media types, size, thumbnail/metadata JSON, timestamps; no owner foreign key |
 | `SequelizeMeta` | Applied migration names maintained by the migration runner |
 
 The registered `001-initial-schema` migration creates `pgcrypto` and the three application tables. Models use UUIDs; a legacy helper named `JoiCustomValidateObjectId` actually validates UUIDs. The migration runner applies pending entries from its explicit registry and rolls back the last applied entry. Migration operations are not automatically transactional. The initial rollback drops media, sessions, and users, then the role/media enum types.
 
-The seed looks up `SUPER_ADMIN_PROVIDER`. If absent, it creates a verified, unblocked `admin`. If present, it overwrites that account's password using `SUPER_ADMIN_PASSWORD` and the password hash hook, but does not correct its role or flags. Every Docker app start executes this seed, including production.
+Migration 004 renames `users.provider` to `users.phone`; historical migrations remain unchanged. The seed looks up `SUPER_ADMIN_PHONE`. If absent, it creates a verified, unblocked `admin`. If present, it overwrites that account's password using `SUPER_ADMIN_PASSWORD` and the password hash hook, but does not correct its role or flags. Every Docker app start executes this seed, including production.
 
 ## Authentication and sessions
 
 The clinic roles are admin, doctor, and customer. Roles.USER is a compatibility constant whose public value is customer. User administration is admin-only. Clinic ownership helpers permit only assigned-doctor or owning-customer access and define initial action permissions; no clinic routes invoke them yet.
 
-Public registration accepts provider, name, and password, rejects role/isVerified/isBlocked, and forces customer in the service. Self-profile validation forbids administrative fields. Passwords use bcrypt cost 12. Default queries exclude passwords, and model serialization removes them even with password-inclusive scopes.
+Public registration accepts Egyptian phone, name, and password, rejects role/isVerified/isBlocked, and forces customer in the service. It stores a password hash in Redis and creates a database account only after OTP verification. Admin-created accounts are marked verified. Customer password recovery and phone changes use OTP; a changed phone is activated only after verification. OTPs are HMAC-hashed in Redis with expiry, attempt limits, and cooldowns; issuance endpoints currently return the generated code in `data.otp`. Self-profile validation forbids administrative fields. Passwords use bcrypt cost 12. Default queries exclude passwords, and model serialization removes them even with password-inclusive scopes.
 
 Login rejects blocked accounts and creates a persisted session. Access tokens retain the existing 15-hour lifetime; refresh tokens last seven days. Access authentication and refresh require a matching, unexpired session belonging to an existing unblocked user. Invalid refresh JWTs and missing sessions return expected authentication errors. Refresh rotates the stored token while holding a database row lock, so a concurrent request with the previous token fails. Logout destroys its session.
 
@@ -91,9 +92,9 @@ Arabic and English JSON translations live under `src/i18n/local`, with Arabic as
 
 ## Configuration, security, and verification baseline
 
-Zod validates configuration in src/config/env.ts. Storage settings remain conditional by provider. SMTP and Google authentication settings have been removed. CLINIC_CURRENCY defaults to EGP and validates three uppercase letters; doctor model creation uses this default. Examples and the README table track these settings.
+Zod validates configuration in src/config/env.ts. Redis and OTP settings are synchronized with `.env.example` and README. OTP HMAC uses `OTP_HMAC_SECRET` when configured and otherwise the refresh token signing key. Storage settings remain conditional by provider. SMTP, SMS provider, and Google authentication settings have been removed. CLINIC_CURRENCY defaults to EGP and validates three uppercase letters; doctor model creation uses this default. Examples and the README table track these settings.
 
-Database hostname fallback still only rewrites db to localhost outside Docker. REDIS_URL remains unused by application code. SQL logging is disabled, and connection/authentication logs no longer include database URLs or user objects.
+Database hostname fallback still only rewrites db to localhost outside Docker. SQL logging is disabled, and connection/authentication logs no longer include database URLs or user objects.
 
 Original checks failed with six source lint errors plus generated-output errors, missing Firebase credentials, and a placeholder npm test. The foundation removes those build blockers, excludes dist from linting, and adds Node/tsx unit and Docker integration suites. See README commands and CLINIC_FOUNDATION verification notes for actual results.
 

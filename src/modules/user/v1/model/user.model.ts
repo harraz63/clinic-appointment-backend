@@ -9,7 +9,7 @@ import { UserSessionModel } from '../../../user-session/v1/model/user-session.en
 // ---------- Model ----------
 export class UserModel extends Model {
     declare id: string;
-    declare provider: string;
+    declare phone: string;
     declare password?: string;
     declare name: string;
     declare role: Role;
@@ -51,12 +51,12 @@ UserModel.init(
             defaultValue: DataTypes.UUIDV4,
             primaryKey: true,
         },
-        provider: {
+        phone: {
             type: DataTypes.STRING,
             allowNull: false,
             unique: true,
             validate: {
-                is: /^((\+?\d{1,3}[- ]?)?\d{10,15}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$/,
+                is: /^\+201[0125]\d{8}$/,
             },
         },
         password: {

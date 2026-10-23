@@ -3,15 +3,15 @@ import { JoiCustomValidateObjectId } from '../../../utils/joi-custom-validate-ob
 import { Roles } from '../../../constants/roles.js';
 
 export const userValidationSchema = Joi.object({
-    provider: Joi.string().min(6).max(255).required()
-        .pattern(/^(\+?[1-9]\d{1,14}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})$/)
+    phone: Joi.string().min(11).max(13).required()
+        .pattern(/^(?:01[0125]\d{8}|\+?20(?:1[0125]\d{8}))$/)
         .messages({
-            'string.base': 'Provider must be a string',
-            'string.empty': 'Provider cannot be empty',
-            'string.min': 'Provider must be at least 6 characters long',
-            'string.max': 'Provider must be at most 255 characters long',
-            'string.pattern.base': 'Provider must be a valid mobile number or email address',
-            'any.required': 'Provider is required',
+            'string.base': 'Phone must be a string',
+            'string.empty': 'Phone cannot be empty',
+            'string.min': 'Phone must be a valid Egyptian mobile number',
+            'string.max': 'Phone must be a valid Egyptian mobile number',
+            'string.pattern.base': 'Phone must be a valid Egyptian mobile number',
+            'any.required': 'Phone is required',
         }),
     password: Joi.string().min(5).max(1024).required().messages({
         'string.base': 'Password must be a string',
@@ -42,7 +42,7 @@ export const userValidationSchema = Joi.object({
 
 export const createUserSchema = userValidationSchema;
 export const updateUserSchema = userValidationSchema
-    .fork(['password', 'provider', 'name'], schema => schema.optional())
+    .fork(['password', 'phone', 'name'], schema => schema.optional())
     .append({
         id: JoiCustomValidateObjectId('ID', false)
     });
@@ -67,8 +67,8 @@ export const getUsersByFilterSchema = Joi.object({
         'number.min': 'Limit must be at least 1',
         'number.max': 'Limit cannot exceed 100'
     }),
-    provider: Joi.string().trim().optional().messages({
-        'string.base': 'Provider must be a string'
+    phone: userValidationSchema.extract('phone').optional().messages({
+        'string.base': 'Phone must be a string'
     }),
     name: Joi.string().trim().optional().messages({
         'string.base': 'Name must be a string'

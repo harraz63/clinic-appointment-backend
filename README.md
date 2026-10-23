@@ -8,7 +8,7 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 
 | Area | Current implementation |
 | --- | --- |
-| Authentication | Phone/email provider and password registration/login, JWT access tokens, persisted refresh-token sessions, refresh/logout |
+| Authentication | Egyptian phone registration with OTP verification, phone/password login, password recovery, verified customer phone changes, JWT/session refresh and logout |
 | Users | Administrator CRUD/filter routes and authenticated self-profile read/update/delete routes |
 | Sessions | Persisted refresh tokens, session ownership/expiration and blocked-account checks |
 | Clinic foundation | Branches, specialties, doctors, schedules/exceptions, appointments, payments, inbox models, and dashboard contracts; no business endpoints |
@@ -16,7 +16,7 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
 
-Redis is provisioned in Docker Compose but is unused by the API. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI and an OpenAPI document describe the implemented HTTP API. Node/tsx tests cover the foundation; Docker integration tests use an isolated PostgreSQL container. See [known limitations](#known-limitations).
+Redis stores pending registrations and HMAC-hashed OTP state. OTP issuance endpoints return the generated code in `data.otp` for now; no SMS provider is configured. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI and an OpenAPI document describe the implemented HTTP API. Node/tsx tests cover the foundation; Docker integration tests use isolated PostgreSQL and Redis containers. See [known limitations](#known-limitations).
 
 ## Technology and repository structure
 
@@ -64,7 +64,7 @@ Use Node.js/npm and a reachable PostgreSQL database. Docker is optional for host
    docker compose up -d postgres redis
    ```
 
-   With the example local database credentials, set the host-side `.env` database URL to `postgres://postgres:postgres@localhost:5432/app_db`. These are disposable local example credentials, not deployment credentials. Redis publishes port 6379 but is unused by the API.
+   With the example local database credentials, set the host-side `.env` database URL to `postgres://postgres:postgres@localhost:5432/app_db`. These are disposable local example credentials, not deployment credentials. For host execution, set `REDIS_URL=redis://localhost:6379`.
 
 4. Apply migrations and seed the intended local database:
 
@@ -74,7 +74,7 @@ Use Node.js/npm and a reachable PostgreSQL database. Docker is optional for host
    npm run start:dev
    ```
 
-   Seeding overwrites the password of an existing account matching `SUPER_ADMIN_PROVIDER`. Check the database target before running it. `start:dev` alone neither migrates nor seeds.
+   Seeding overwrites the password of an existing account matching `SUPER_ADMIN_PHONE`. Check the database target before running it. `start:dev` alone neither migrates nor seeds.
 
 The default listener is `http://localhost:3000`; startup logs include the Swagger UI URL. Open the API docs at `http://localhost:3000/api/docs` or fetch the OpenAPI JSON from `http://localhost:3000/api/docs/openapi.json`. Check metadata at `/` and database health at `/health`. A healthy response confirms PostgreSQL connectivity, not the correctness of authentication or media integrations.
 
@@ -116,13 +116,18 @@ The API loads `.env` through dotenv and validates settings in [src/config/env.ts
 | `DB_URI` | Required URL | PostgreSQL connection; host uses `localhost`, Compose uses `postgres` |
 | `APP_NAME` | Required nonempty string | Metadata and health service name |
 | `APP_VERSION` | Required nonempty string | Metadata and health version |
-| `SUPER_ADMIN_PROVIDER` | Required nonempty string | Seed account lookup; use a valid email/phone provider |
+| `SUPER_ADMIN_PHONE` | Required nonempty string | Seed account lookup; use an Egyptian mobile number |
 | `SUPER_ADMIN_PASSWORD` | Required nonempty string | Password set by each seed run; choose a strong secret |
 | `JWT_PRIVATE_KEY` | Required nonempty string | Access JWT signing secret |
 | `REFRESH_TOKEN_PRIVATE_KEY` | Required nonempty string | Refresh JWT signing secret |
 | `CLINIC_CURRENCY` | Three uppercase letters; default `EGP` | Default currency for doctor model creation; snapshots retain explicit currency |
 | `STORAGE_TYPE` | `local`, `s3`, or `r2`; default `local` | Storage provider |
 | `APP_URL` | Required for `local` | Origin used to build `/uploads/...` URLs |
+| `REDIS_URL` | Redis URL; default `redis://localhost:6379` | Redis connection for pending signup and OTP state |
+| `OTP_HMAC_SECRET` | Optional; set a dedicated secret of at least 32 characters | HMAC key for OTP hashes in Redis; defaults to `REFRESH_TOKEN_PRIVATE_KEY` when omitted |
+| `OTP_TTL_MINUTES` | Positive integer; default `10` | OTP and pending registration lifetime |
+| `OTP_RESEND_COOLDOWN_SECONDS` | Positive integer; default `60` | Minimum resend interval |
+| `OTP_MAX_ATTEMPTS` | Positive integer; default `5` | Failed verification attempts before OTP invalidation |
 | `AWS_REGION` | Required for `s3` | S3 region |
 | `S3_BUCKET` | Required for `s3` | S3 bucket |
 | `S3_PUBLIC_URL` | Required for `s3` | Base URL for object links |
@@ -134,33 +139,32 @@ The API loads `.env` through dotenv and validates settings in [src/config/env.ts
 
 Local storage requires no SMTP credentials. S3 uses the AWS SDK's credential resolution; the application schema does not define AWS access key variables.
 
-Additional infrastructure settings are outside the Zod schema:
+Additional infrastructure settings include:
 
 | Variable | Consumer and behavior |
 | --- | --- |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Compose database initialization; defaults are `postgres`, `postgres`, and `app_db`. Keep `DB_URI` consistent. |
-| `REDIS_URL` | Example infrastructure setting only; not read by the API or used to configure the Compose Redis server. |
 | `DOCKER`, `IN_DOCKER` | Database hostname detection reads these directly. Either equal to `true` prevents the special `db` to `localhost` rewrite. Compose does not set them. |
 
 Only hostname `db` has the automatic host fallback. The example's `postgres` hostname must be changed explicitly when running the API on the host.
 
 ## Roles and authentication usage
 
-Roles are `admin`, `doctor`, and `customer`. `Roles.USER` retains its key for migration compatibility but evaluates to `customer`. User administration requires `admin`. Public registration forbids `role`, `isVerified`, and `isBlocked`, and the service always creates a customer. Accounts are created immediately without OTP verification. Doctor profiles and their branch assignments will be provisioned by future admin services.
+Roles are `admin`, `doctor`, and `customer`. `Roles.USER` retains its key for migration compatibility but evaluates to `customer`. User administration requires `admin`. Account authentication uses Egyptian mobile numbers only. Public registration forbids `role`, `isVerified`, and `isBlocked`, stages only a password hash in Redis, and creates a customer account after the OTP is verified. Admin-created users are marked verified. Doctor profiles and their branch assignments will be provisioned by future admin services.
 
-Register using `POST /api/v1/auth/register` with this shape, replacing the example password with your own:
+Start registration using `POST /api/v1/auth/register`; the response includes `data.otp` for local verification. Then submit that code to `POST /api/v1/auth/register/verify`. Replace the example password with your own:
 
 ```json
 {
-  "provider": "person@example.com",
+  "phone": "01012345678",
   "name": "Example User",
   "password": "ExampleOnly#123"
 }
 ```
 
-`provider` is a phone number or email. Registration's name schema accepts 5–30 characters. The service enforces a password of at least eight characters with uppercase, lowercase, a digit, and one of `@$!%*?&#`.
+`phone` accepts Egyptian mobile numbers in local or `+20` format and is stored in normalized `+20` form. Registration's name schema accepts 5–30 characters. The service enforces a password of at least eight characters with uppercase, lowercase, a digit, and one of `@$!%*?&#`.
 
-Login accepts `provider` and `password`. Its successful response contains `data.user`, `data.accessToken` as `{ "token": "...", "expiresAt": "..." }`, and `data.refreshToken` as a string. Send the nested access token string on protected requests:
+Login accepts `phone` and `password`. Its successful response contains `data.user`, `data.accessToken` as `{ "token": "...", "expiresAt": "..." }`, and `data.refreshToken` as a string. Send the nested access token string on protected requests:
 
 ```http
 Authorization: Bearer <data.accessToken.token>
@@ -178,25 +182,31 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | GET | `/` | Public | Application name/version |
 | GET | `/health` | Public | PostgreSQL health: 200 `ok` or 503 `degraded` |
 | GET | `/api/constant/roles` | Public | Translated role constants |
-| POST | `/api/v1/auth/register` | Public | Register with provider, name, password |
-| POST | `/api/v1/auth/login` | Public | Provider/password login |
+| POST | `/api/v1/auth/register` | Public | Start customer registration with phone, name, password |
+| POST | `/api/v1/auth/register/verify` | Public | Verify `{ phone, otp }`; create customer and return session tokens |
+| POST | `/api/v1/auth/send-otp` | Public | Resend for `{ phone, type: register|resetPassword }`; issued OTP is in `data.otp` |
+| POST | `/api/v1/auth/forgot-password` | Public | Request customer password reset; issued OTP is in `data.otp`, otherwise `data: null` |
+| POST | `/api/v1/auth/reset-password` | Public | Reset with `{ phone, otp, newPassword }`; revokes sessions |
+| POST | `/api/v1/auth/login` | Public | Phone/password login |
 | POST | `/api/v1/auth/refresh-token` | Public | Rotate supplied refresh token |
 | POST | `/api/v1/auth/logout` | Public | Delete session matching supplied refresh token |
 | PATCH | `/api/v1/auth/password` | Authenticated | `currentPassword`, `newPassword` |
 | GET | `/api/v1/auth/me` | Authenticated | Read current profile |
 | PATCH | `/api/v1/auth/me` | Authenticated | Update name; administrative fields forbidden |
+| PATCH | `/api/v1/auth/me/phone` | Customer | Request phone change; returns OTP in `data.otp`; current phone stays active until verification |
+| POST | `/api/v1/auth/me/phone/verify` | Customer | Verify and activate pending phone |
 | DELETE | `/api/v1/auth/me` | Authenticated | Delete current user |
 | POST | `/api/v1/users` | Admin | Create user; controller forces `isVerified: true` |
 | GET | `/api/v1/users/filter` | Admin | Filter/paginate users |
 | GET | `/api/v1/users/:id` | Admin | Read UUID user |
-| PATCH | `/api/v1/users/:id` | Admin | Update UUID user; name/provider/password optional |
+| PATCH | `/api/v1/users/:id` | Admin | Update UUID user; name/phone/password optional |
 | DELETE | `/api/v1/users/:id` | Admin | Delete UUID user |
 | POST | `/api/v1/media/upload` | Public | Multipart file in field `media` |
 | GET | `/api/v1/media/:id/info` | Public | Media metadata |
 | GET | `/api/v1/media/:id` | Public | Media bytes with stored content type |
 | GET | `/uploads/<key>` | Public | Static local files, when present |
 
-User filtering accepts `page`, `limit`, `provider`, `name`, `role`, `isVerified`, and `isBlocked`; no matching rows return 404. Name/provider filters use PostgreSQL case-insensitive substring matching (`ILIKE`). Controllers explicitly supply omitted pagination defaults. Joi still validates merged request fields without writing normalized values back to the request.
+User filtering accepts `page`, `limit`, `phone`, `name`, `role`, `isVerified`, and `isBlocked`; no matching rows return 404. Name and phone filters use PostgreSQL case-insensitive matching. Controllers explicitly supply omitted pagination defaults. Joi still validates merged request fields without writing normalized values back to the request.
 
 All JSON success responses use `{ status: "success", data: ... }`. This includes metadata, health, constants, auth, users, and media upload/metadata. Actions without a result return `data: null`. Health diagnostics are nested in `data` for both healthy and degraded responses. Binary media downloads and the OpenAPI document keep their native formats.
 
@@ -216,7 +226,7 @@ The health endpoint returns the same error fields with `status: "error"` and `st
 
 ## Migrations and seeding
 
-Migrations are explicitly registered in [src/database/migrations/migrations.ts](./src/database/migrations/migrations.ts) and tracked in `SequelizeMeta`. The unchanged initial migration creates `pgcrypto`, `users`, `user_sessions`, and `media`. Migration 002 converts clinic roles, widens refresh-token storage to TEXT, and removes FCM tokens. Migration 003 creates the clinic domain tables and bilingual cash method. New migrations use explicit transactions. Schema changes do not use runtime model synchronization. The runner does not automatically wrap migrations in transactions.
+Migrations are explicitly registered in [src/database/migrations/migrations.ts](./src/database/migrations/migrations.ts) and tracked in `SequelizeMeta`. The unchanged initial migration creates `pgcrypto`, `users`, `user_sessions`, and `media`. Migration 002 converts clinic roles, widens refresh-token storage to TEXT, and removes FCM tokens. Migration 003 creates the clinic domain tables and bilingual cash method. Migration 004 renames the account identity column from `provider` to `phone`; it does not edit prior migrations. New migrations use explicit transactions. Schema changes do not use runtime model synchronization. The runner does not automatically wrap migrations in transactions.
 
 ```powershell
 npm run migrate
@@ -225,7 +235,7 @@ npm run seed
 
 Compiled equivalents are `npm run migrate:prod` and `npm run seed:prod`; they require a successful build. Rollback commands undo the last applied registered migration. Rollback first removes migration 003 domain tables and their data. Role rollback refuses doctor accounts and oversized refresh tokens, restores customer to user, narrows token storage, and restores an empty FCM column. Resolve or revoke incompatible sessions explicitly before rollback. Rolling back migration 001 deletes the original application tables and records; it is not a harmless setup check.
 
-Seeding creates a verified, unblocked admin if the configured provider is absent. If the provider exists, it resets its password and leaves role/flags unchanged. This applies even when that provider belongs to a non-admin user. Docker executes seeding on every app start.
+Seeding creates a verified, unblocked admin if the configured phone is absent. If the phone exists, it resets that account's password and leaves role/flags unchanged. This applies even when the phone belongs to a non-admin user. Docker executes seeding on every app start.
 
 ## Migration history conflicts
 
@@ -262,7 +272,7 @@ These APIs provide public media, not protected clinical-document storage. The se
 | `npm run lint` | Runs ESLint |
 | `npm run lint:fix` | Runs ESLint with source rewriting |
 | `npm test` | Runs focused Node test-runner tests through tsx, without database access |
-| `npm run test:integration` | Creates/removes a disposable Docker PostgreSQL 16 container; tests migrations and HTTP flows without running seed |
+| `npm run test:integration` | Creates/removes disposable Docker PostgreSQL 16 and Redis 7 containers; tests migrations and OTP HTTP flows without running seed |
 
 For source/configuration changes, run lint, build, and relevant tests and report actual results. `npx tsc --noEmit` checks TypeScript without emitting output. Validate both Compose files when runtime configuration changes. Do not use migrations or seeding to verify documentation edits.
 
@@ -273,7 +283,7 @@ For source/configuration changes, run lint, build, and relevant tests and report
 - Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.
 - Media remains public with incomplete processing. Production uploads lack a persistent volume. Docker startup still migrates and seeds, resetting the configured administrator password. No graceful shutdown or CI deployment workflow exists.
-- Redis remains unused by application code. Email, SMS, push, medical records, and private clinical files are outside this foundation.
+- OTP codes are returned directly by issuance endpoints for the current development setup. An SMS delivery integration is not configured. Login OTP, email account identity, push delivery, medical records, and private clinical files are outside this foundation.
 - npm reports dependency advisories; dependency security upgrades require a separate compatibility review.
 
 ## Repository guidance

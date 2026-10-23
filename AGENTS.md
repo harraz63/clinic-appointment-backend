@@ -8,7 +8,7 @@ These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTU
 - The current application uses TypeScript, native ES modules, Express 4, Sequelize 6, and PostgreSQL. Docker targets Node.js 20 and provisions PostgreSQL 16 and Redis 7.
 - Implemented HTTP areas are authentication, administrator user management, self-profile management, public media upload/retrieval, constants, metadata, and database health.
 - Roles are `admin`, `doctor`, and `customer`. `Roles.USER` is a compatibility key with value `customer` because migration 001 imports it. Public registration forbids role, verification, and blocking fields and always creates customers.
-- Redis is present in Compose and `.env.example`, but the application has no Redis client or runtime integration. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker or implemented OTP flow.
+- Redis backs pending signup and OTP state. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured. Account identity is an Egyptian phone number; clinic contact email fields are separate. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker.
 
 ## Implementation rules
 
@@ -31,7 +31,7 @@ The following are standards for new or modified code. They do not imply that all
 ## Operational constraints
 
 - `npm run start:dev` and `npm start` do not migrate or seed. Both Docker startup scripts migrate and seed before starting the API, including production.
-- Seeding looks up `SUPER_ADMIN_PROVIDER` and resets that existing user's password to `SUPER_ADMIN_PASSWORD`. It does not repair an existing user's role or status. Do not describe the seed as create-only or run it against an unintended database.
+- Seeding looks up `SUPER_ADMIN_PHONE` and resets that existing user's password to `SUPER_ADMIN_PASSWORD`. It does not repair an existing user's role or status. Do not describe the seed as create-only or run it against an unintended database.
 - The initial migration creates `users`, `user_sessions`, and `media`; migration bookkeeping uses `SequelizeMeta`. Rolling back that migration drops the application tables.
 - Local uploads live under `public/uploads`. Development Compose preserves them through its repository bind mount; production Compose has no upload volume. Container replacement can lose production local files.
 - Keep `.env`, service-account JSON, uploads, and real user data out of commits. Never generate or commit provider credentials.
@@ -61,7 +61,7 @@ Keep these four documents synchronized with executable behavior. Handoffs should
 
 ## Clinic foundation constraints
 
-- Migrations 002 and 003 prepare clinic roles, remove FCM storage, and create domain tables. Migration 001 remains unchanged. Do not use schema synchronization.
+- Migrations 002 and 003 prepare clinic roles, remove FCM storage, and create domain tables; migration 004 renames `users.provider` to `users.phone`. Migration 001 remains unchanged. Do not use schema synchronization.
 - Legacy `user` accounts convert to `customer`; other inherited roles block migration for manual resolution. Role rollback refuses doctor accounts or refresh tokens over 255 characters, restores customers to `user`, and narrows token storage. Removed FCM values cannot be restored.
 - Persist bilingual business text as JSONB `{ ar, en }`; return both languages. Money uses DECIMAL(12,2) and decimal strings. Booking services must snapshot price, currency, duration, timezone, and branch.
 - Schedules use branch-local times; appointments use UTC instants. No availability engine, overlap protection, status workflow, or notification delivery exists yet.

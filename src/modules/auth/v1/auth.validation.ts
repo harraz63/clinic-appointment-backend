@@ -2,9 +2,9 @@ import Joi from 'joi';
 import { userValidationSchema } from '../../user/v1/user.validation.js';
 
 export const loginSchema = Joi.object({
-    provider: userValidationSchema.extract('provider').messages({
-        'any.required': 'Provider is required',
-        'string.empty': 'Provider cannot be empty'
+    phone: userValidationSchema.extract('phone').messages({
+        'any.required': 'Phone is required',
+        'string.empty': 'Phone cannot be empty'
     }),
     password: Joi.string().required().messages({
         'any.required': 'Password is required',
@@ -17,6 +17,26 @@ export const registerSchema = userValidationSchema
     .keys({
         password: userValidationSchema.extract('password')
     });
+
+export const sendOtpSchema = Joi.object({
+    phone: userValidationSchema.extract('phone'),
+    type: Joi.string().valid('register', 'resetPassword').required(),
+}).unknown(false);
+
+export const verifyRegistrationSchema = Joi.object({
+    phone: userValidationSchema.extract('phone'),
+    otp: Joi.string().pattern(/^\d{6}$/).required(),
+}).unknown(false);
+
+export const forgotPasswordSchema = Joi.object({ phone: userValidationSchema.extract('phone') }).unknown(false);
+export const resetPasswordSchema = Joi.object({
+    phone: userValidationSchema.extract('phone'),
+    otp: Joi.string().pattern(/^\d{6}$/).required(),
+    newPassword: userValidationSchema.extract('password'),
+}).unknown(false);
+
+export const changePhoneSchema = Joi.object({ phone: userValidationSchema.extract('phone') }).unknown(false);
+export const verifyPhoneChangeSchema = Joi.object({ otp: Joi.string().pattern(/^\d{6}$/).required() }).unknown(false);
 
 export const refreshTokenSchema = Joi.object({
     refreshToken: Joi.string().required().messages({
@@ -39,7 +59,7 @@ export const changePasswordSchema = Joi.object({
 });
 
 export const updateMeSchema = userValidationSchema
-    .fork(['provider', 'password', 'role', 'isVerified', 'isBlocked'], schema => schema.forbidden())
+    .fork(['phone', 'password', 'role', 'isVerified', 'isBlocked'], schema => schema.forbidden())
     .keys({
         name: userValidationSchema.extract('name').optional(),
     });
