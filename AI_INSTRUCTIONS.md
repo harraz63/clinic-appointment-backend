@@ -13,6 +13,14 @@ Read in this order:
 
 When documentation disagrees with code, inspect executable behavior and update stale documentation within the task's scope. An existing defect is not an intended product requirement. Separate descriptions of current behavior from standards for future changes.
 
+## Git branch workflow
+
+- Never edit task files directly on `dev`. Check the current branch and working tree before making changes.
+- Create a descriptive task branch from the latest available `dev` branch before editing, for example `feature/appointment-search`, `fix/otp-expiry`, or `docs/branch-workflow`.
+- Continue on the existing task branch when it already belongs to the current task. If currently on `dev`, switch to a new task branch first.
+- Preserve unrelated local changes and avoid branch operations that discard or mix them into the task.
+- Keep task changes on the task branch. Do not merge into or commit directly to `dev` unless the user explicitly requests it.
+
 ## Current implementation boundary
 
 The repository is an Express API foundation for a clinic appointment project. It has generic users, authentication, sessions, media, metadata, constants, and a database health endpoint. Clinic models, migrations, validators, typed inputs, and appointment ownership helpers are prepared under versioned modules. Clinic business routes, appointment slots, booking rules, and medical-record workflows remain unimplemented. The approved roadmap and contracts are documented in [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md).

@@ -2,6 +2,14 @@
 
 These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTURE_BASELINE.md](./ARCHITECTURE_BASELINE.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md) before changing application behavior. Use [README.md](./README.md) for setup and operating instructions.
 
+## Git branch workflow
+
+- Never make task changes directly on `dev`. Before editing, check the current branch and working tree.
+- Start each task branch from the latest available `dev` branch and give it a descriptive name, such as `feature/appointment-search`, `fix/otp-expiry`, or `docs/branch-workflow`.
+- If already on a task branch, continue using it when it belongs to the current task. If the current branch is `dev`, create and switch to a new task branch before editing.
+- Preserve unrelated working-tree changes. Do not switch branches or create a branch in a way that discards or carries unrelated changes; resolve the situation safely before proceeding.
+- Keep all task edits on the task branch. Do not merge into, commit to, or otherwise write task changes directly to `dev` unless the user explicitly asks for that operation.
+
 ## Project facts
 
 - This repository is the foundation for a clinic appointment backend. Clinic domain models, migrations, bilingual validation, and ownership contracts are prepared. Clinic business endpoints and scheduling are not implemented; see CLINIC_FOUNDATION.md.
