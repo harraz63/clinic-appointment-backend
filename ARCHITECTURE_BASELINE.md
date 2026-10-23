@@ -16,7 +16,7 @@ Express API
     |-- Redis: pending registrations and OTP state
     |-- StorageFactory: local public/uploads, Amazon S3, or Cloudflare R2
 
-Redis backs signup and OTP state. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured.
+Redis backs signup and OTP state. Registration and password-reset OTPs are issued by their respective request endpoints; pending registrations can request a resend at `/api/v1/auth/register/resend-otp`. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured.
 Firebase, SMTP, FCM, and Google authentication have been removed.
 ```
 
@@ -72,7 +72,7 @@ Migration 004 renames `users.provider` to `users.phone`; historical migrations r
 
 The clinic roles are admin, doctor, and customer. Roles.USER is a compatibility constant whose public value is customer. User administration is admin-only. Clinic ownership helpers permit only assigned-doctor or owning-customer access and define initial action permissions; no clinic routes invoke them yet.
 
-Public registration accepts Egyptian phone, name, and password, rejects role/isVerified/isBlocked, and forces customer in the service. It stores a password hash in Redis and creates a database account only after OTP verification. Admin-created accounts are marked verified. Customer password recovery and phone changes use OTP; a changed phone is activated only after verification. OTPs are HMAC-hashed in Redis with expiry, attempt limits, and cooldowns; issuance endpoints currently return the generated code in `data.otp`. Self-profile validation forbids administrative fields. Passwords use bcrypt cost 12. Default queries exclude passwords, and model serialization removes them even with password-inclusive scopes.
+Public registration accepts Egyptian phone, name, and password, rejects role/isVerified/isBlocked, and forces customer in the service. It stores a password hash in Redis and creates a database account only after OTP verification. `POST /api/v1/auth/register` starts registration, and `POST /api/v1/auth/register/resend-otp` resends the code for a pending registration. `POST /api/v1/auth/forgot-password` is the sole password-reset OTP request and can be called again after the resend cooldown. Admin-created accounts are marked verified. Customer password recovery and phone changes use OTP; a changed phone is activated only after verification. OTPs are HMAC-hashed in Redis with expiry, attempt limits, and cooldowns; issuance endpoints currently return the generated code in `data.otp`. Self-profile validation forbids administrative fields. Passwords use bcrypt cost 12. Default queries exclude passwords, and model serialization removes them even with password-inclusive scopes.
 
 Login rejects blocked accounts and creates a persisted session. Access tokens retain the existing 15-hour lifetime; refresh tokens last seven days. Access authentication and refresh require a matching, unexpired session belonging to an existing unblocked user. Invalid refresh JWTs and missing sessions return expected authentication errors. Refresh rotates the stored token while holding a database row lock, so a concurrent request with the previous token fails. Logout destroys its session.
 

@@ -163,7 +163,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         const unknownReset = await request('/api/v1/auth/forgot-password', 'POST', { phone: '01098765432' });
         assert.equal(unknownReset.status, 202);
         assert.equal(unknownReset.body.data, null);
-        const immediateResend = await request('/api/v1/auth/send-otp', 'POST', { phone: registration.phone, type: 'register' });
+        const immediateResend = await request('/api/v1/auth/register/resend-otp', 'POST', { phone: registration.phone });
         assert.equal(immediateResend.status, 429);
         const actualOtp = registered.body.data.otp as string;
         const wrongOtp = actualOtp === '000000' ? '000001' : '000000';
@@ -172,7 +172,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
             assert.equal(invalidOtp.status, 422);
         }
         await setTimeout(1100);
-        const resent = await request('/api/v1/auth/send-otp', 'POST', { phone: registration.phone, type: 'register' });
+        const resent = await request('/api/v1/auth/register/resend-otp', 'POST', { phone: registration.phone });
         assert.equal(resent.status, 202);
         assert.match(resent.body.data.otp, /^\d{6}$/);
         const verified = await request('/api/v1/auth/register/verify', 'POST', { phone: registration.phone, otp: resent.body.data.otp });

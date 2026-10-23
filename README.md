@@ -162,6 +162,8 @@ Start registration using `POST /api/v1/auth/register`; the response includes `da
 }
 ```
 
+If the signup code expires or is missed, request another with `POST /api/v1/auth/register/resend-otp` and `{ "phone": "01012345678" }`. Password-reset codes are requested through `POST /api/v1/auth/forgot-password`.
+
 `phone` accepts Egyptian mobile numbers in local or `+20` format and is stored in normalized `+20` form. Registration's name schema accepts 5–30 characters. The service enforces a password of at least eight characters with uppercase, lowercase, a digit, and one of `@$!%*?&#`.
 
 Login accepts `phone` and `password`. Its successful response contains `data.user`, `data.accessToken` as `{ "token": "...", "expiresAt": "..." }`, and `data.refreshToken` as a string. Send the nested access token string on protected requests:
@@ -184,7 +186,7 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | GET | `/api/constant/roles` | Public | Translated role constants |
 | POST | `/api/v1/auth/register` | Public | Start customer registration with phone, name, password |
 | POST | `/api/v1/auth/register/verify` | Public | Verify `{ phone, otp }`; create customer and return session tokens |
-| POST | `/api/v1/auth/send-otp` | Public | Resend for `{ phone, type: register|resetPassword }`; issued OTP is in `data.otp` |
+| POST | `/api/v1/auth/register/resend-otp` | Public | Resend a pending registration OTP for `{ phone }`; issued OTP is in `data.otp` |
 | POST | `/api/v1/auth/forgot-password` | Public | Request customer password reset; issued OTP is in `data.otp`, otherwise `data: null` |
 | POST | `/api/v1/auth/reset-password` | Public | Reset with `{ phone, otp, newPassword }`; revokes sessions |
 | POST | `/api/v1/auth/login` | Public | Phone/password login |
