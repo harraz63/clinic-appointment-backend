@@ -18,9 +18,8 @@ export const registerSchema = userValidationSchema
         password: userValidationSchema.extract('password')
     });
 
-export const sendOtpSchema = Joi.object({
+export const resendRegistrationOtpSchema = Joi.object({
     phone: userValidationSchema.extract('phone'),
-    type: Joi.string().valid('register', 'resetPassword').required(),
 }).unknown(false);
 
 export const verifyRegistrationSchema = Joi.object({

@@ -85,12 +85,12 @@ export const openapiDocument = {
                 responses: { '202': { description: 'OTP is returned in data.otp for verification' }, ...validationError },
             },
         },
-        '/api/v1/auth/send-otp': {
+        '/api/v1/auth/register/resend-otp': {
             post: {
                 tags: ['Authentication'],
-                summary: 'Resend a registration or password reset OTP',
-                requestBody: jsonRequest({ type: 'object', required: ['phone', 'type'], properties: { phone: { type: 'string' }, type: { type: 'string', enum: ['register', 'resetPassword'] } }, additionalProperties: false }),
-                responses: { '202': { description: 'Returns data.otp when an eligible OTP is issued; otherwise data is null' }, ...validationError },
+                summary: 'Resend a pending customer registration OTP',
+                requestBody: jsonRequest({ type: 'object', required: ['phone'], properties: { phone: { type: 'string' } }, additionalProperties: false }),
+                responses: { '202': { description: 'Returns data.otp when a pending registration exists; otherwise data is null' }, ...validationError },
             },
         },
         '/api/v1/auth/register/verify': {

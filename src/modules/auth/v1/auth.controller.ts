@@ -23,8 +23,8 @@ export async function registerController(req: Request, res: Response): Promise<v
     sendSuccess(res, { otp }, StatusCodes.ACCEPTED);
 }
 
-export async function sendOtpController(req: Request, res: Response): Promise<void> {
-    const otp = await AuthService.sendOtp(req.body.phone, req.body.type);
+export async function resendRegistrationOtpController(req: Request, res: Response): Promise<void> {
+    const otp = await AuthService.resendRegistrationOtp(req.body.phone);
     sendSuccess(res, otp ? { otp } : null, StatusCodes.ACCEPTED);
 }
 

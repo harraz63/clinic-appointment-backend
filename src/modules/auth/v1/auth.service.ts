@@ -69,18 +69,13 @@ export class AuthService {
         }
     }
 
-    static async sendOtp(phoneInput: string, type: 'register' | 'resetPassword'): Promise<string | null> {
+    static async resendRegistrationOtp(phoneInput: string): Promise<string | null> {
         const phone = normalizeEgyptianPhone(phoneInput);
-        if (type === 'register') {
-            const pending = await PendingRegistrationService.get(phone);
-            if (!pending || await UserModel.findOne({ where: { phone } })) return null;
-            const otp = await OtpService.send(phone, 'signup');
-            await PendingRegistrationService.renew(phone);
-            return otp;
-        }
-        const user = await UserModel.findOne({ where: { phone, role: Roles.USER } });
-        if (user) return OtpService.send(phone, 'password_reset');
-        return null;
+        const pending = await PendingRegistrationService.get(phone);
+        if (!pending || await UserModel.findOne({ where: { phone } })) return null;
+        const otp = await OtpService.send(phone, 'signup');
+        await PendingRegistrationService.renew(phone);
+        return otp;
     }
 
     static async verifyRegistration(phoneInput: string, otp: string): Promise<AuthResult> {
@@ -105,7 +100,10 @@ export class AuthService {
 
     static async forgotPassword(phoneInput: string): Promise<string | null> {
         try {
-            return await this.sendOtp(phoneInput, 'resetPassword');
+            const phone = normalizeEgyptianPhone(phoneInput);
+            const user = await UserModel.findOne({ where: { phone, role: Roles.USER } });
+            if (user) return await OtpService.send(phone, 'password_reset');
+            return null;
         } catch (error: unknown) {
             if (error instanceof HttpResponseError && error.statusCode === StatusCodes.TOO_MANY_REQUESTS) return null;
             throw error;

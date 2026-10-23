@@ -10,7 +10,7 @@ import {
     getMeController,
     updateMeController,
     deleteMeController,
-    sendOtpController,
+    resendRegistrationOtpController,
     verifyRegistrationController,
     forgotPasswordController,
     resetPasswordController,
@@ -24,7 +24,7 @@ import {
     logoutSchema,
     changePasswordSchema,
     updateMeSchema,
-    sendOtpSchema,
+    resendRegistrationOtpSchema,
     verifyRegistrationSchema,
     forgotPasswordSchema,
     resetPasswordSchema,
@@ -38,7 +38,7 @@ export const authRouterV1 = express.Router();
 // Public routes
 authRouterV1.post('/login', validateRequest(loginSchema), loginController);
 authRouterV1.post('/register', validateRequest(registerSchema), registerController);
-authRouterV1.post('/send-otp', validateRequest(sendOtpSchema), sendOtpController);
+authRouterV1.post('/register/resend-otp', validateRequest(resendRegistrationOtpSchema), resendRegistrationOtpController);
 authRouterV1.post('/register/verify', validateRequest(verifyRegistrationSchema), verifyRegistrationController);
 authRouterV1.post('/forgot-password', validateRequest(forgotPasswordSchema), forgotPasswordController);
 authRouterV1.post('/reset-password', validateRequest(resetPasswordSchema), resetPasswordController);
