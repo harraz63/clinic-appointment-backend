@@ -2,7 +2,7 @@
 
 ## Purpose and implementation boundary
 
-This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Admin branch/specialty catalog CRUD and public active browsing are implemented; doctor management, scheduling, booking, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
+This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Admin branch/specialty catalog CRUD, public active browsing, and admin doctor account/profile management are implemented; public doctor browsing, scheduling, booking, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
 
 The package is clinic-appointment-backend version 1.0.0. The runtime remains Express 4, TypeScript with native ESM/NodeNext and strict:false, Sequelize 6, and PostgreSQL. Docker targets Node.js 20, PostgreSQL 16, and Redis 7.
 
@@ -51,6 +51,7 @@ Some current handlers directly access models, and media routes have no authentic
 | `/api/v1/users` | User create/filter/read/update/delete | Authenticated `admin` |
 | `/api/v1/branches`, `/api/v1/specialties` | Public active catalog lists with bilingual name search and pagination | Public |
 | `/api/v1/admin/branches`, `/api/v1/admin/specialties` | Catalog CRUD and filtered pagination | Authenticated `admin` |
+| `/api/v1/admin/doctors` | Doctor account/profile provisioning and admin profile CRUD with filtered pagination | Authenticated `admin` |
 | `/api/v1/media` | Upload, bytes, and metadata retrieval | Public |
 
 Versioned modules live in `src/modules/<domain>/v1`; constants are an unversioned exception. See [README.md](./README.md) for individual endpoints.
@@ -108,7 +109,7 @@ Follow [AGENTS.md](./AGENTS.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md); 
 
 Migration 002 transactionally converts user to customer, retains admins, rejects unrelated legacy account roles, replaces the enum, widens refresh tokens to TEXT, and removes fcmToken. Rollback rejects doctor accounts or oversized refresh tokens, restores legacy roles, narrows token storage, and restores an empty nullable FCM column. Migration 003 transactionally creates branches, specialties, doctors, doctor_schedules, schedule_exceptions, appointments, payment_methods, payment_records, and notifications, with a bilingual cash method. Its rollback deletes these domain tables and data.
 
-Doctor profiles have one user, one branch, and one specialty. Appointments reference customer accounts, doctors, and their booked branch, with independent status and price/currency/duration/timezone snapshots. Schedule intervals are branch-local; appointment instants use PostgreSQL timezone-aware timestamps. Inbox notifications reference recipients. Associations initialize centrally without synchronization. JSONB bilingual content, DECIMAL money, foreign keys, indexes, and basic checks are prepared; business workflows remain absent.
+Doctor profiles have one user, one branch, and one specialty. Admin doctor provisioning transactionally creates a verified doctor-role user and profile, requires active branch/specialty assignments, and preserves account/profile role consistency through the generic user APIs. Doctor list/detail responses include user, branch, and specialty while excluding password fields. Profile deletion deactivates rather than removes the account or historical records. Appointments reference customer accounts, doctors, and their booked branch, with independent status and price/currency/duration/timezone snapshots. Schedule intervals are branch-local; appointment instants use PostgreSQL timezone-aware timestamps. Inbox notifications reference recipients. Associations initialize centrally without synchronization. JSONB bilingual content, DECIMAL money, foreign keys, indexes, and basic checks are prepared; scheduling and booking workflows remain absent.
 
 ## Migration CLI safeguards
 

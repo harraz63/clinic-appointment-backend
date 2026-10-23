@@ -1,6 +1,6 @@
 # Clinic Appointment Backend
 
-Express and TypeScript backend foundation for a clinic appointment project. The repository provides authentication, users, sessions, public media, and branch/specialty catalog APIs, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Doctor management, scheduling, bookings, payments, inbox delivery, dashboards, and medical records are not implemented.
+Express and TypeScript backend for a clinic appointment project. The repository provides authentication, users, sessions, public media, branch/specialty catalog APIs, and admin doctor account/profile management, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Scheduling, bookings, payments, inbox delivery, dashboards, and medical records are not implemented.
 
 The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for relationships, future APIs, RBAC, bilingual data, and the implementation roadmap.
 
@@ -12,7 +12,8 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Users | Administrator CRUD/filter routes and authenticated self-profile read/update/delete routes |
 | Sessions | Persisted refresh tokens, session ownership/expiration and blocked-account checks |
 | Clinic catalog | Admin branch/specialty CRUD and public active browsing with bilingual name search and pagination |
-| Clinic foundation | Doctor, schedule/exception, appointment, payment, inbox models, and dashboard contracts; workflows remain unimplemented |
+| Doctors | Admin doctor account/profile CRUD with atomic provisioning, assignment filters, and profile deactivation |
+| Clinic foundation | Schedule/exception, appointment, payment, inbox models, and dashboard contracts; workflows remain unimplemented |
 | Media | Public multipart upload, file retrieval, and metadata using local, S3, or R2 storage |
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
@@ -151,7 +152,7 @@ Only hostname `db` has the automatic host fallback. The example's `postgres` hos
 
 ## Roles and authentication usage
 
-Roles are `admin`, `doctor`, and `customer`. `Roles.USER` retains its key for migration compatibility but evaluates to `customer`. User administration requires `admin`. Account authentication uses Egyptian mobile numbers only. Public registration forbids `role`, `isVerified`, and `isBlocked`, stages only a password hash in Redis, and creates a customer account after the OTP is verified. Admin-created users are marked verified. Doctor profiles and their branch assignments will be provisioned by future admin services.
+Roles are `admin`, `doctor`, and `customer`. `Roles.USER` retains its key for migration compatibility but evaluates to `customer`. User administration requires `admin`. Account authentication uses Egyptian mobile numbers only. Public registration forbids `role`, `isVerified`, and `isBlocked`, stages only a password hash in Redis, and creates a customer account after the OTP is verified. Admin-created users are marked verified. Create doctor accounts through the admin doctor API so the verified doctor-role account and profile are created atomically. The generic user API cannot create/promote doctor accounts, demote linked doctor accounts, or delete accounts that have doctor profiles.
 
 Start registration using `POST /api/v1/auth/register`; the response includes `data.otp` for local verification. Then submit that code to `POST /api/v1/auth/register/verify`. Replace the example password with your own:
 
@@ -210,6 +211,8 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | GET/PATCH/DELETE | `/api/v1/admin/branches/:id` | Admin | Read/update branch; delete when unreferenced or deactivate when referenced |
 | GET/POST | `/api/v1/admin/specialties` | Admin | Paginated/searchable specialty list with optional `isActive`; create bilingual specialty |
 | GET/PATCH/DELETE | `/api/v1/admin/specialties/:id` | Admin | Read/update specialty; delete when unreferenced or deactivate when referenced |
+| GET/POST | `/api/v1/admin/doctors` | Admin | Paginated doctor list; create doctor account/profile with phone, account name, strong password, bilingual profile, active branch/specialty, decimal price, and duration |
+| GET/PATCH/DELETE | `/api/v1/admin/doctors/:id` | Admin | Read/update profile; DELETE deactivates and retains account and appointment history |
 | POST | `/api/v1/media/upload` | Public | Multipart file in field `media` |
 | GET | `/api/v1/media/:id/info` | Public | Media metadata |
 | GET | `/api/v1/media/:id` | Public | Media bytes with stored content type |
@@ -218,6 +221,8 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 User filtering accepts `page`, `limit`, `phone`, `name`, `role`, `isVerified`, and `isBlocked`; no matching rows return 404. Name and phone filters use PostgreSQL case-insensitive matching. Controllers explicitly supply omitted pagination defaults. Joi still validates merged request fields without writing normalized values back to the request.
 
 Branch and specialty catalog lists use `page` (default 1), `limit` (default 10, maximum 100), case-insensitive `search` across Arabic and English names, and return `{ items, page, limit, total, totalPages }`. Public lists include active records only; admin lists may filter `isActive`. Admin deletion deactivates records referenced by doctors, and branches referenced by appointments; otherwise the record is removed.
+
+Admin doctor lists use the same pagination defaults and response shape, with bilingual profile-name search and optional `branchId`, `specialtyId`, `isActive`, and `isAvailable` filters. Results include the account, branch, and specialty; passwords are excluded. Omitted currency uses `CLINIC_CURRENCY`. A branch and specialty must exist and be active when assigning or reactivating a doctor profile. Updates affect clinic profile fields; account phone and name remain editable through admin user management.
 
 All JSON success responses use `{ status: "success", data: ... }`. This includes metadata, health, constants, auth, users, and media upload/metadata. Actions without a result return `data: null`. Health diagnostics are nested in `data` for both healthy and degraded responses. Binary media downloads and the OpenAPI document keep their native formats.
 
@@ -289,7 +294,7 @@ For source/configuration changes, run lint, build, and relevant tests and report
 
 ## Known limitations
 
-- Clinic models and contracts are prepared; CRUD, booking, scheduling, overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
+- Doctor administration is implemented. Scheduling, public doctor browsing, booking, overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
 - Google authentication is not implemented. Existing Google-only accounts are preserved but cannot sign in until a password is set. Password changes revoke all sessions; refresh rotation is serialized per session.
 - Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.

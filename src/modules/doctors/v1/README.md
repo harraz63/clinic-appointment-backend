@@ -1,5 +1,5 @@
-# Doctors foundation
+# Doctor management
 
-Doctor profile belongs to one account, branch and specialty. Model, input contract and Joi validator are prepared. Admin provisioning must atomically create a doctor-role account/profile and enforce role consistency. Public browsing and profile management remain unimplemented.
+Doctor profile belongs to one account, branch and specialty. Admin routes create verified doctor-role accounts and profiles atomically, list and read profiles with their account/branch/specialty, update profile fields, and deactivate without deleting history. Lists support bilingual profile-name search, branch/specialty filters, activity filters, and pagination. Assignments and reactivation require an active branch and specialty. Generic user management cannot create/promote doctor accounts or demote/delete accounts linked to doctor profiles.
 
-No HTTP routes are mounted for this module. See [the clinic foundation](../../../../CLINIC_FOUNDATION.md) for relationships, access rules, future routes, verification and roadmap.
+Routes are mounted under `/api/v1/admin/doctors` and are restricted to admins. Creation requires an Egyptian phone, account name, strong initial password, bilingual profile name, branch, specialty, decimal appointment price, and positive duration; currency defaults from `CLINIC_CURRENCY`. Public browsing, schedules, and booking remain unimplemented. See [the clinic foundation](../../../../CLINIC_FOUNDATION.md) for relationships, access rules, verification and roadmap.

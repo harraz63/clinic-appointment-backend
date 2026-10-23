@@ -2,6 +2,8 @@ import Joi from 'joi';
 import { JoiCustomValidateObjectId } from '../../../utils/joi-custom-validate-object-id.js';
 import { Roles } from '../../../constants/roles.js';
 
+const adminManagedRoles = [Roles.ADMIN, Roles.USER] as const;
+
 export const userValidationSchema = Joi.object({
     phone: Joi.string().min(11).max(13).required()
         .pattern(/^(?:01[0125]\d{8}|\+?20(?:1[0125]\d{8}))$/)
@@ -27,9 +29,9 @@ export const userValidationSchema = Joi.object({
         'string.max': 'User name must be at most 30 characters long',
         'any.required': 'User name is required',
     }),
-    role: Joi.string().valid(...Object.values(Roles)).default(Roles.USER).messages({
+    role: Joi.string().valid(...adminManagedRoles).default(Roles.USER).messages({
         'string.base': 'Role must be a string',
-        'any.only': `Role must be one of ${Object.values(Roles).join(', ')}`,
+        'any.only': `Role must be one of ${adminManagedRoles.join(', ')}`,
         'any.default': `Role defaults to '${Roles.USER}' if not specified`
     }),
     isVerified: Joi.boolean().optional().messages({
@@ -42,7 +44,8 @@ export const userValidationSchema = Joi.object({
 
 export const createUserSchema = userValidationSchema;
 export const updateUserSchema = userValidationSchema
-    .fork(['password', 'phone', 'name'], schema => schema.optional())
+    .fork(['password', 'phone', 'name', 'role'], schema => schema.optional())
+    .append({ role: Joi.string().valid(...adminManagedRoles).optional() })
     .append({
         id: JoiCustomValidateObjectId('ID', false)
     });

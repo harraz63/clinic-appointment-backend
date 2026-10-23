@@ -31,7 +31,7 @@ export const openapiDocument = {
     info: {
         title: 'Clinic Appointment Backend API',
         version: '1.0.0',
-        description: 'HTTP API for authentication, user management, media, and service health.',
+        description: 'HTTP API for authentication, user management, clinic catalogs, doctor administration, media, and service health.',
     },
     servers: [{ url: '/', description: 'Current API origin' }],
     tags: [
@@ -40,6 +40,7 @@ export const openapiDocument = {
         { name: 'Users' },
         { name: 'Branches' },
         { name: 'Specialties' },
+        { name: 'Doctors' },
         { name: 'Media' },
     ],
     paths: {
@@ -187,6 +188,49 @@ export const openapiDocument = {
                 responses: { ...successResponse, ...validationError, '404': { description: 'Specialty not found' } },
             },
             delete: { tags: ['Specialties'], summary: 'Delete or deactivate a specialty (admin only)', security: secured, responses: { ...successResponse, ...validationError, '404': { description: 'Specialty not found' } } },
+        },
+        '/api/v1/admin/doctors': {
+            get: {
+                tags: ['Doctors'], summary: 'List doctors (admin only)', security: secured,
+                parameters: [
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 }, description: 'Case-insensitive match against Arabic or English doctor profile names' },
+                    { in: 'query', name: 'branchId', schema: { type: 'string', format: 'uuid' } },
+                    { in: 'query', name: 'specialtyId', schema: { type: 'string', format: 'uuid' } },
+                    { in: 'query', name: 'isActive', schema: { type: 'boolean' } },
+                    { in: 'query', name: 'isAvailable', schema: { type: 'boolean' } },
+                    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+                    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+                ],
+                responses: { ...successResponse, ...validationError },
+            },
+            post: {
+                tags: ['Doctors'], summary: 'Create a doctor account and profile (admin only)', security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', required: ['phone', 'accountName', 'password', 'branchId', 'specialtyId', 'name', 'appointmentPrice', 'appointmentDurationMinutes'], additionalProperties: false,
+                    properties: {
+                        phone: { type: 'string', description: 'Egyptian mobile phone number' }, accountName: { type: 'string', minLength: 5, maxLength: 255 }, password: { type: 'string', format: 'password', description: 'Must include uppercase, lowercase, number and special character' },
+                        branchId: { type: 'string', format: 'uuid' }, specialtyId: { type: 'string', format: 'uuid' }, name: { $ref: '#/components/schemas/LocalizedText' }, biography: { $ref: '#/components/schemas/LocalizedText' },
+                        appointmentPrice: { type: 'string', pattern: '^\\d{1,10}\\.\\d{2}$' }, currency: { type: 'string', pattern: '^[A-Z]{3}$', description: 'Defaults to the configured CLINIC_CURRENCY' }, appointmentDurationMinutes: { type: 'integer', minimum: 1 }, isAvailable: { type: 'boolean', default: true }, isActive: { type: 'boolean', default: true },
+                    },
+                }),
+                responses: { ...createdResponse, ...validationError, '409': { description: 'Phone number already exists' } },
+            },
+        },
+        '/api/v1/admin/doctors/{id}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Doctors'], summary: 'Get a doctor and related account, branch, and specialty (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Doctor not found' } } },
+            patch: {
+                tags: ['Doctors'], summary: 'Update a doctor profile (admin only)', security: secured,
+                requestBody: jsonRequest({
+                    type: 'object', minProperties: 1, additionalProperties: false,
+                    properties: {
+                        branchId: { type: 'string', format: 'uuid' }, specialtyId: { type: 'string', format: 'uuid' }, name: { $ref: '#/components/schemas/LocalizedText' }, biography: { allOf: [{ $ref: '#/components/schemas/LocalizedText' }], nullable: true },
+                        appointmentPrice: { type: 'string', pattern: '^\\d{1,10}\\.\\d{2}$' }, currency: { type: 'string', pattern: '^[A-Z]{3}$' }, appointmentDurationMinutes: { type: 'integer', minimum: 1 }, isAvailable: { type: 'boolean' }, isActive: { type: 'boolean' },
+                    },
+                }),
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' }, '422': { description: 'Branch and specialty assignments must be active' } },
+            },
+            delete: { tags: ['Doctors'], summary: 'Deactivate a doctor profile and retain its account and history (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Doctor not found' } } },
         },
         '/api/v1/auth/register': {
             post: {
