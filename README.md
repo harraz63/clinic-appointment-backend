@@ -1,6 +1,6 @@
 # Clinic Appointment Backend
 
-Express and TypeScript backend for a clinic appointment project. The repository provides authentication, users, sessions, public media, branch/specialty catalog APIs, and admin doctor account/profile management, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Scheduling, bookings, payments, inbox delivery, dashboards, and medical records are not implemented.
+Express and TypeScript backend for a clinic appointment project. The repository provides authentication, users, sessions, public media, branch/specialty catalog APIs, admin doctor account/profile management, and admin schedules, plus clinic domain models, migrations, validation patterns, ownership helpers, and typed module contracts. Availability, bookings, payments, inbox delivery, dashboards, and medical records are not implemented.
 
 The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for relationships, future APIs, RBAC, bilingual data, and the implementation roadmap.
 
@@ -13,7 +13,8 @@ The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOU
 | Sessions | Persisted refresh tokens, session ownership/expiration and blocked-account checks |
 | Clinic catalog | Admin branch/specialty CRUD and public active browsing with bilingual name search and pagination |
 | Doctors | Admin doctor account/profile CRUD with atomic provisioning, assignment filters, and profile deactivation |
-| Clinic foundation | Schedule/exception, appointment, payment, inbox models, and dashboard contracts; workflows remain unimplemented |
+| Doctor schedules | Admin-managed weekly hours and dated days off/replacement hours per doctor and branch |
+| Clinic foundation | Appointment, payment, and inbox models plus dashboard contracts; those workflows remain unimplemented |
 | Media | Public multipart upload, file retrieval, and metadata using local, S3, or R2 storage |
 | Platform | Application metadata, public roles, PostgreSQL health, Joi request validation, Arabic/English messages, Winston logging, Helmet, CORS, and rate limiting |
 | Database | Ordered Sequelize migrations and an administrator seed |
@@ -213,6 +214,9 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | GET/PATCH/DELETE | `/api/v1/admin/specialties/:id` | Admin | Read/update specialty; delete when unreferenced or deactivate when referenced |
 | GET/POST | `/api/v1/admin/doctors` | Admin | Paginated doctor list; create doctor account/profile with phone, account name, strong password, bilingual profile, active branch/specialty, decimal price, and duration |
 | GET/PATCH/DELETE | `/api/v1/admin/doctors/:id` | Admin | Read/update profile; DELETE deactivates and retains account and appointment history |
+| GET/PUT | `/api/v1/admin/doctors/:id/schedules` | Admin | Read or replace all weekly intervals in the assigned branch's local timezone |
+| GET | `/api/v1/admin/doctors/:id/schedule-exceptions?from=YYYY-MM-DD&to=YYYY-MM-DD` | Admin | List dated overrides in an inclusive date range |
+| PUT/DELETE | `/api/v1/admin/doctors/:id/schedule-exceptions/:date` | Admin | Set a day off or replacement intervals; DELETE restores weekly hours |
 | POST | `/api/v1/media/upload` | Public | Multipart file in field `media` |
 | GET | `/api/v1/media/:id/info` | Public | Media metadata |
 | GET | `/api/v1/media/:id` | Public | Media bytes with stored content type |
@@ -223,6 +227,8 @@ User filtering accepts `page`, `limit`, `phone`, `name`, `role`, `isVerified`, a
 Branch and specialty catalog lists use `page` (default 1), `limit` (default 10, maximum 100), case-insensitive `search` across Arabic and English names, and return `{ items, page, limit, total, totalPages }`. Public lists include active records only; admin lists may filter `isActive`. Admin deletion deactivates records referenced by doctors, and branches referenced by appointments; otherwise the record is removed.
 
 Admin doctor lists use the same pagination defaults and response shape, with bilingual profile-name search and optional `branchId`, `specialtyId`, `isActive`, and `isAvailable` filters. Results include the account, branch, and specialty; passwords are excluded. Omitted currency uses `CLINIC_CURRENCY`. A branch and specialty must exist and be active when assigning or reactivating a doctor profile. Updates affect clinic profile fields; account phone and name remain editable through admin user management.
+
+Schedule `PUT` accepts `{ "intervals": [{ "weekday": 1, "startTime": "09:00", "endTime": "12:00" }] }`; an empty list clears weekly hours. Weekday 0 is Sunday. Date-exception `PUT` accepts `{ "isDayOff": true }` or `{ "isDayOff": false, "intervals": [{ "startTime": "10:00", "endTime": "12:00" }] }`, with optional bilingual `reason`. Times are `HH:mm` in the doctor's assigned branch timezone; overnight work uses intervals on separate days. Intervals for one doctor cannot overlap, while different doctors may work concurrently. An exception replaces regular hours on its date. Clear the doctor's weekly hours and exceptions before changing branches. Availability and booking endpoints are not yet implemented.
 
 All JSON success responses use `{ status: "success", data: ... }`. This includes metadata, health, constants, auth, users, and media upload/metadata. Actions without a result return `data: null`. Health diagnostics are nested in `data` for both healthy and degraded responses. Binary media downloads and the OpenAPI document keep their native formats.
 
@@ -294,7 +300,7 @@ For source/configuration changes, run lint, build, and relevant tests and report
 
 ## Known limitations
 
-- Doctor administration is implemented. Scheduling, public doctor browsing, booking, overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
+- Doctor administration and schedule management are implemented. Public doctor browsing, availability, booking overlap protection, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
 - Google authentication is not implemented. Existing Google-only accounts are preserved but cannot sign in until a password is set. Password changes revoke all sessions; refresh rotation is serialized per session.
 - Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.

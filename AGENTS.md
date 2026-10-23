@@ -12,9 +12,9 @@ These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTU
 
 ## Project facts
 
-- This repository is the foundation for a clinic appointment backend. Clinic domain models, migrations, bilingual validation, and ownership contracts are prepared. Clinic business endpoints and scheduling are not implemented; see CLINIC_FOUNDATION.md.
+- This repository is the foundation for a clinic appointment backend. Clinic domain models, migrations, bilingual validation, and ownership contracts are prepared. Catalog, admin doctor, and admin schedule endpoints are implemented; availability and booking are not. See CLINIC_FOUNDATION.md.
 - The current application uses TypeScript, native ES modules, Express 4, Sequelize 6, and PostgreSQL. Docker targets Node.js 20 and provisions PostgreSQL 16 and Redis 7.
-- Implemented HTTP areas are authentication, administrator user management, self-profile management, public media upload/retrieval, constants, metadata, and database health.
+- Implemented HTTP areas are authentication, administrator user management, self-profile management, catalog, admin doctor and schedule management, public media upload/retrieval, constants, metadata, and database health.
 - Roles are `admin`, `doctor`, and `customer`. `Roles.USER` is a compatibility key with value `customer` because migration 001 imports it. Public registration forbids role, verification, and blocking fields and always creates customers.
 - Redis backs pending signup and OTP state. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured. Account identity is an Egyptian phone number; clinic contact email fields are separate. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker.
 

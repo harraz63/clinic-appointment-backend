@@ -10,6 +10,8 @@ import { PaginationOptions } from '../../../shared/catalog-query.types.js';
 import { BranchModel } from '../../branches/v1/model/branch.model.js';
 import { SpecialtyModel } from '../../specialties/v1/model/specialty.model.js';
 import { UserModel } from '../../user/v1/model/user.model.js';
+import { DoctorScheduleModel } from '../../doctor-schedules/v1/model/doctor-schedule.model.js';
+import { ScheduleExceptionModel } from '../../doctor-schedules/v1/model/schedule-exception.model.js';
 import { DoctorModel } from './model/doctor.model.js';
 import { CreateDoctorInput, DoctorProfileInput } from './doctor.types.js';
 
@@ -130,15 +132,26 @@ export class DoctorService {
     }
 
     static async update(id: string, input: Partial<DoctorProfileInput>): Promise<DoctorModel> {
-        const doctor = await DoctorModel.findByPk(id);
-        if (!doctor) throw new HttpResponseError(StatusCodes.NOT_FOUND, 'Doctor not found');
+        await sequelize.transaction(async transaction => {
+            const doctor = await DoctorModel.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+            if (!doctor) throw new HttpResponseError(StatusCodes.NOT_FOUND, 'Doctor not found');
 
-        const branchId = input.branchId ?? doctor.branchId;
-        const specialtyId = input.specialtyId ?? doctor.specialtyId;
-        if (input.branchId !== undefined || input.specialtyId !== undefined || input.isActive === true) {
-            await requireActiveAssignment(branchId, specialtyId);
-        }
-        await doctor.update(input);
+            const branchId = input.branchId ?? doctor.branchId;
+            const specialtyId = input.specialtyId ?? doctor.specialtyId;
+            if (input.branchId !== undefined || input.specialtyId !== undefined || input.isActive === true) {
+                await requireActiveAssignment(branchId, specialtyId, transaction);
+            }
+            if (branchId !== doctor.branchId) {
+                const [scheduleCount, exceptionCount] = await Promise.all([
+                    DoctorScheduleModel.count({ where: { doctorId: id }, transaction }),
+                    ScheduleExceptionModel.count({ where: { doctorId: id }, transaction }),
+                ]);
+                if (scheduleCount || exceptionCount) {
+                    throw new HttpResponseError(StatusCodes.CONFLICT, 'Clear doctor schedule before changing branch');
+                }
+            }
+            await doctor.update(input, { transaction });
+        });
         return this.getById(id);
     }
 
