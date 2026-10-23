@@ -25,6 +25,7 @@ export class UserModel extends Model {
     public toJSON() {
         const values = { ...this.get() };
         delete values.password;
+        if (values.googleId === null) delete values.googleId;
         return values;
     }
 

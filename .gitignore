@@ -148,3 +148,6 @@ admin-sdk.json
 # Docker
 .env.docker
 .env.docker.*
+
+# Local-only account credentials
+/local-secrets/

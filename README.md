@@ -64,7 +64,7 @@ Use Node.js/npm and a reachable PostgreSQL database. Docker is optional for host
    docker compose up -d postgres redis
    ```
 
-   With the example local database credentials, set the host-side `.env` database URL to `postgres://postgres:postgres@localhost:5432/app_db`. These are disposable local example credentials, not deployment credentials. For host execution, set `REDIS_URL=redis://localhost:6379`.
+   With the example local database credentials, set the host-side `.env` database URL to `postgres://postgres:postgres@localhost:5432/app_db`. These are disposable local example credentials, not deployment credentials. Host execution uses `REDIS_URL=redis://127.0.0.1:6379/2`; Compose sets `REDIS_URL=redis://redis:6379` inside API containers.
 
 4. Apply migrations and seed the intended local database:
 
@@ -123,7 +123,7 @@ The API loads `.env` through dotenv and validates settings in [src/config/env.ts
 | `CLINIC_CURRENCY` | Three uppercase letters; default `EGP` | Default currency for doctor model creation; snapshots retain explicit currency |
 | `STORAGE_TYPE` | `local`, `s3`, or `r2`; default `local` | Storage provider |
 | `APP_URL` | Required for `local` | Origin used to build `/uploads/...` URLs |
-| `REDIS_URL` | Redis URL; default `redis://localhost:6379` | Redis connection for pending signup and OTP state |
+| `REDIS_URL` | Required Redis URL; local host example `redis://127.0.0.1:6379/2` | Redis connection for pending signup and OTP state; Compose overrides it with `redis://redis:6379` inside API containers |
 | `OTP_HMAC_SECRET` | Optional; set a dedicated secret of at least 32 characters | HMAC key for OTP hashes in Redis; defaults to `REFRESH_TOKEN_PRIVATE_KEY` when omitted |
 | `OTP_TTL_MINUTES` | Positive integer; default `10` | OTP and pending registration lifetime |
 | `OTP_RESEND_COOLDOWN_SECONDS` | Positive integer; default `60` | Minimum resend interval |

@@ -70,9 +70,10 @@ test('role middleware only allows configured roles', () => {
 });
 
 test('password-inclusive model serialization never exposes a password hash', () => {
-    const user = UserModel.build({ ...registration, id: randomUUID(), password: 'sensitive-hash' });
+    const user = UserModel.build({ ...registration, id: randomUUID(), password: 'sensitive-hash', googleId: null });
     assert.equal(user.password, 'sensitive-hash');
     assert.equal('password' in user.toJSON(), false);
+    assert.equal('googleId' in user.toJSON(), false);
     assert.equal(JSON.stringify(user).includes('sensitive-hash'), false);
 });
 

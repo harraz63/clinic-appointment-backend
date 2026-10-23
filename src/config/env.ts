@@ -20,7 +20,7 @@ const envSchema = z.object({
     S3_BUCKET: z.string().min(1, 'S3_BUCKET must not be empty').optional(),
     S3_PUBLIC_URL: z.string().min(1, 'S3_PUBLIC_URL must not be empty').optional(),
     APP_URL: z.string().min(1, 'APP_URL must not be empty').optional(),
-    REDIS_URL: z.url().default('redis://localhost:6379'),
+    REDIS_URL: z.url(),
     OTP_HMAC_SECRET: z.string().optional(),
     OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
     OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
