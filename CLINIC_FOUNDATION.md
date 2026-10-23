@@ -4,7 +4,7 @@
 
 The original template provided Express 4, TypeScript 5 with native ESM, Sequelize 6/PostgreSQL, Passport/JWT sessions, Joi, Zod configuration, Arabic/English i18n, Winston, and public media through StorageFactory. These remain the foundation. There is no frontend or multi-tenant organization model. TypeScript remains `strict: false`.
 
-Authentication, administrator user management, profile management, public media, constants, metadata, and database health have real HTTP handlers. The clinic modules below provide persistence definitions and development contracts only. No clinic routes are mounted, no appointment can be booked through this API yet, and no mock dashboard or payment workflow is presented as implemented.
+Authentication, administrator user management, profile management, public media, constants, metadata, database health, and the branch/specialty catalog have real HTTP handlers. Branches and specialties support admin CRUD and public active browsing with bilingual name search and pagination. Other clinic modules provide persistence definitions and development contracts only. No appointment can be booked through this API yet, and no mock dashboard or payment workflow is presented as implemented.
 
 Removed inherited functionality: Firebase helper, SMTP transport/configuration, FCM device-token endpoint/storage, and their direct Firebase/Nodemailer dependencies. Google authentication was previously optional; it has since been removed with its verifier and Passport strategy dependencies. The legacy googleId database column remains to preserve existing account data. Existing Docker migration/seed behavior is unchanged.
 
@@ -21,8 +21,8 @@ src/
         auth/v1/            Existing authentication and profile HTTP handlers
         user/v1/            Existing admin user HTTP handlers
         user-session/v1/    Session model; no FCM endpoint
-        branches/v1/        Model, input type, bilingual validator
-        specialties/v1/     Model, input type, bilingual validator
+        branches/v1/        Model, admin CRUD, public search/list, bilingual validator
+        specialties/v1/     Model, admin CRUD, public search/list, bilingual validator
         doctors/v1/         Model, input type, profile validator
         doctor-schedules/v1/ Working intervals, dated exceptions, validation
         appointments/v1/    Snapshot model, internal input, ownership permissions
@@ -78,23 +78,30 @@ Business text uses `LocalizedText`: `{ "ar": "الاسم", "en": "Name" }`, pers
 
 `Accept-Language` controls localized HTTP messages, with Arabic as the default. Both locale files expose the same keys. Existing response shapes are preserved. Future clinic successes use `{ status: "success", data: ... }`; new collection contracts use `items`, `page`, `limit`, `total`, and `totalPages` within data. Existing user filtering retains its `users` shape and empty-result 404 behavior.
 
-Future list endpoints should validate pagination (page 1, limit 10, maximum 100), allowlisted sort fields and direction, and domain-specific filters. Services must apply defaults explicitly: validateRequest merges body, path and query and does not write Joi's normalized output back to requests. Existing user text filters now use PostgreSQL ILIKE.
+Catalog list endpoints validate pagination (page 1, limit 10, maximum 100) and case-insensitive bilingual-name search. Public branch/specialty lists include active records only; admin lists can filter by `isActive`. Catalog collections return `items`, `page`, `limit`, `total`, and `totalPages`. Future list endpoints should validate allowlisted sort fields and direction and domain-specific filters. Services must apply defaults explicitly: validateRequest merges body, path and query and does not write Joi's normalized output back to requests. Existing user text filters now use PostgreSQL ILIKE.
+
+### Implemented catalog routes
+
+| Area | Routes | Authorization |
+| --- | --- | --- |
+| Public catalog | GET /api/v1/branches, /specialties | Public active content; supports `search`, `page`, and `limit` |
+| Admin catalog | CRUD /api/v1/admin/branches and /api/v1/admin/specialties | Admin; referenced records are deactivated on delete |
 
 ### Future route map — not mounted
 
 | Area | Proposed routes | Authorization |
 | --- | --- | --- |
-| Browsing | GET /api/v1/branches, /specialties, /doctors, /doctors/:id, /doctors/:id/availability | Public active content |
+| Browsing | GET /api/v1/doctors, /doctors/:id, /doctors/:id/availability | Public active content |
 | Booking/history | POST/GET /api/v1/appointments; GET /appointments/:id; PATCH /appointments/:id/cancel or /reschedule | Customer ownership; services derive customer and snapshots |
 | Doctor work | GET /api/v1/doctor/appointments, /doctor/schedule; PATCH /doctor/appointments/:id/status | Doctor ownership and allowed actions |
-| Admin catalog | CRUD /api/v1/admin/branches, /admin/specialties, /admin/doctors | Admin; doctor provisioning combines account/profile atomically |
+| Admin catalog | CRUD /api/v1/admin/doctors | Admin; doctor provisioning combines account/profile atomically |
 | Admin schedules | /api/v1/admin/doctors/:id/schedules and /schedule-exceptions | Admin |
 | Admin appointments | GET /api/v1/admin/appointments; PATCH /admin/appointments/:id/status | Admin |
 | Cash collection | PATCH /api/v1/admin/appointments/:id/payment | Admin; explicit audit identity/time |
 | Inbox | GET /api/v1/notifications; PATCH /notifications/:id/read | Authenticated recipient ownership |
 | Dashboards | GET /api/v1/admin/dashboard and /doctor/dashboard | Role; doctor query scope derived from identity |
 
-Existing auth, user, media, constants, metadata and health routes remain documented in README. This route map is guidance for later features, not an API implementation or generated OpenAPI specification.
+Existing auth, user, catalog, media, constants, metadata and health routes remain documented in README. The future route map is guidance for later features, not a generated OpenAPI specification.
 
 ## Scheduling, payments, and inbox boundaries
 
@@ -118,7 +125,7 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 
 ## Incremental implementation roadmap
 
-1. Add admin branch/specialty CRUD and public active browsing, using bilingual validators and explicit pagination/filter defaults.
+1. Complete admin branch/specialty CRUD and public active browsing with bilingual search and pagination. (Implemented.)
 2. Add transactional doctor account/profile provisioning, branch assignment, specialty and price management; verify role/profile consistency.
 3. Add schedule and exception management with timezone rules and conflict validation.
 4. Implement availability and atomic booking, including database-backed double-booking protection and booked snapshots.
@@ -126,6 +133,12 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 6. Add cash collection, independent payment state and currency-aware totals.
 7. Add inbox event creation and recipient-scoped list/read endpoints; reminders remain a later scheduling feature.
 8. Implement admin/doctor dashboard queries with date and branch filters, currency grouping and doctor ownership scope.
+
+## Catalog API handoff (2026-10-23)
+
+Admin branch/specialty CRUD and public active listing are mounted. Lists support bilingual case-insensitive name search and pagination; admin lists also filter by active status. Referenced records are deactivated on delete, while unreferenced records are removed. No migration was needed.
+
+Verification: `npm run lint`, `npm run build`, `npm test` (11 tests), and `npm run test:integration` (11 tests, including isolated PostgreSQL and Redis) passed.
 
 ## Verified handoff (2026-10-22)
 

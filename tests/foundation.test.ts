@@ -16,6 +16,8 @@ import { AppointmentModel } from '../src/modules/appointments/v1/model/appointme
 import { workingIntervalSchema, scheduleExceptionSchema } from '../src/modules/doctor-schedules/v1/doctor-schedule.validation.js';
 import { Request, Response } from 'express';
 import { normalizeEgyptianPhone } from '../src/utils/phone.utils.js';
+import { adminBranchListSchema, branchInputSchema, branchUpdateSchema, publicBranchListSchema } from '../src/modules/branches/v1/branch.validation.js';
+import { adminSpecialtyListSchema, publicSpecialtyListSchema, specialtyInputSchema, specialtyUpdateSchema } from '../src/modules/specialties/v1/specialty.validation.js';
 
 const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
 
@@ -48,6 +50,26 @@ test('bilingual content requires both nonblank strings and preserves both langua
     assert.equal(timezoneSchema.validate('Africa/Cairo').error, undefined);
     assert.equal(moneySchema.validate('125.50').error, undefined);
     assert.ok(moneySchema.validate(125.5).error);
+});
+
+test('branch and specialty APIs validate bilingual inputs, partial updates and paginated filters', () => {
+    const branch = { name: { ar: 'عيادة', en: 'Clinic' }, address: { ar: 'عنوان', en: 'Address' } };
+    const specialty = { name: { ar: 'تخصص', en: 'Specialty' } };
+    assert.equal(branchInputSchema.validate(branch).error, undefined);
+    assert.equal(specialtyInputSchema.validate(specialty).error, undefined);
+    assert.equal(branchUpdateSchema.validate({ phone: '+201001234567' }).error, undefined);
+    assert.equal(specialtyUpdateSchema.validate({ isActive: false }).error, undefined);
+    assert.ok(branchInputSchema.validate({ ...branch, name: { en: 'Clinic' } }).error);
+    assert.ok(specialtyInputSchema.validate({ ...specialty, extra: true }).error);
+    assert.ok(branchUpdateSchema.validate({}).error);
+    assert.ok(specialtyUpdateSchema.validate({}).error);
+    assert.deepEqual(publicBranchListSchema.validate({ search: 'Clinic', page: '2', limit: '10' }).value,
+        { search: 'Clinic', page: 2, limit: 10 });
+    assert.equal(publicSpecialtyListSchema.validate({ limit: '100' }).error, undefined);
+    assert.ok(publicBranchListSchema.validate({ limit: '101' }).error);
+    assert.ok(publicSpecialtyListSchema.validate({ isActive: 'false' }).error);
+    assert.equal(adminBranchListSchema.validate({ isActive: 'false' }).error, undefined);
+    assert.equal(adminSpecialtyListSchema.validate({ isActive: 'true', search: 'Cardiology' }).error, undefined);
 });
 
 test('doctor and customer access checks enforce ownership and distinct actions', () => {

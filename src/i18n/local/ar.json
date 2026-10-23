@@ -38,6 +38,8 @@
     "specification deleted successfully": "تم حذف المواصفة بنجاح",
     "Package not found": "الحزمة غير موجودة",
     "User not found": "المستخدم غير موجود",
+    "Branch not found": "الفرع غير موجود",
+    "Specialty not found": "التخصص غير موجود",
     "Wasel price not found": "سعر واصِل غير موجود",
     "Ad pricing not configured": "أسعار الإعلانات غير مهيأة",
     "Payment Cancelled": "تم إلغاء الدفع",

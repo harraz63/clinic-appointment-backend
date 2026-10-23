@@ -34,6 +34,8 @@
     "Invalid credentials": "Invalid credentials",
     "Invalid refresh token": "Invalid refresh token",
     "User not found": "User not found",
+    "Branch not found": "Branch not found",
+    "Specialty not found": "Specialty not found",
     "Session not found": "Session not found",
     "Current password is incorrect": "Current password is incorrect",
     "User with this provider already exists": "User with this provider already exists",
