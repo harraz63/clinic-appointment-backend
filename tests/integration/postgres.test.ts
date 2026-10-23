@@ -293,20 +293,57 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/admin/branches/' + randomUUID(), 'GET', undefined, adminToken)).status, 404);
         assert.equal((await request('/api/v1/admin/specialties/' + randomUUID(), 'GET', undefined, adminToken)).status, 404);
 
-        const { UserService } = await import('../../src/modules/user/v1/user.service.js');
-        const { DoctorModel } = await import('../../src/modules/doctors/v1/model/doctor.model.js');
-        const doctorUser = await UserService.createUser({ phone: '01511112222', name: 'Catalog Doctor', role: Roles.DOCTOR, isVerified: true });
-        const doctor = await DoctorModel.create({
-            userId: doctorUser.id, branchId: firstBranch.id, specialtyId: firstSpecialty.id,
+        const doctorInput = {
+            phone: '01511112222', accountName: 'Catalog Doctor', password: 'DoctorOnly#123',
+            branchId: firstBranch.id, specialtyId: firstSpecialty.id,
             name: { en: 'Catalog Doctor', ar: 'طبيب الفهرس' }, appointmentPrice: '100.00',
-            currency: 'EGP', appointmentDurationMinutes: 30,
-        });
+            appointmentDurationMinutes: 30,
+        };
+        const { DoctorService } = await import('../../src/modules/doctors/v1/doctor.service.js');
+        await assert.rejects(() => DoctorService.create({ ...doctorInput, phone: '01511112225', appointmentDurationMinutes: 0 }));
+        assert.equal(await UserModel.findOne({ where: { phone: '+201511112225' } }), null);
+        assert.equal((await request('/api/v1/admin/doctors', 'GET')).status, 401);
+        assert.equal((await request('/api/v1/admin/doctors', 'GET', undefined, accessToken)).status, 403);
+        assert.equal((await request('/api/v1/admin/doctors', 'POST', { ...doctorInput, branchId: inactiveBranch.id }, adminToken)).status, 422);
+        const createdDoctorResponse = await request('/api/v1/admin/doctors', 'POST', doctorInput, adminToken);
+        assert.equal(createdDoctorResponse.status, 201);
+        const doctor = createdDoctorResponse.body.data.doctor;
+        assert.equal(doctor.currency, 'EGP');
+        assert.equal(doctor.user.role, Roles.DOCTOR);
+        assert.equal(doctor.user.isVerified, true);
+        assert.equal('password' in doctor.user, false);
+        const doctorDetails = await request('/api/v1/admin/doctors/' + doctor.id, 'GET', undefined, adminToken);
+        assert.equal(doctorDetails.status, 200);
+        assert.equal(doctorDetails.body.data.doctor.branch.id, firstBranch.id);
+        assert.equal(doctorDetails.body.data.doctor.specialty.id, firstSpecialty.id);
+        assert.equal((await request('/api/v1/admin/doctors', 'POST', doctorInput, adminToken)).status, 409);
+        assert.equal((await request('/api/v1/users', 'POST', {
+            phone: '01511112223', name: 'Unsupported Doctor', password: 'DoctorOnly#123', role: Roles.DOCTOR,
+        }, adminToken)).status, 422);
+        const listedDoctors = await request('/api/v1/admin/doctors?search=Catalog&branchId=' + firstBranch.id + '&specialtyId=' + firstSpecialty.id + '&isActive=true&page=1&limit=10', 'GET', undefined, adminToken);
+        assert.equal(listedDoctors.status, 200);
+        assert.equal(listedDoctors.body.data.total, 1);
+        assert.equal(listedDoctors.body.data.items[0].id, doctor.id);
+        const invalidDoctorReference = await request('/api/v1/admin/doctors', 'POST', { ...doctorInput, phone: '01511112224', branchId: randomUUID() }, adminToken);
+        assert.equal(invalidDoctorReference.status, 422);
+        const updatedDoctorResponse = await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { appointmentPrice: '150.00', isAvailable: false }, adminToken);
+        assert.equal(updatedDoctorResponse.status, 200);
+        assert.equal(updatedDoctorResponse.body.data.doctor.appointmentPrice, '150.00');
+        assert.equal(updatedDoctorResponse.body.data.doctor.isAvailable, false);
+        assert.equal((await request('/api/v1/users/' + doctor.userId, 'PATCH', { role: Roles.USER }, adminToken)).status, 409);
+        assert.equal((await request('/api/v1/users/' + doctor.userId, 'DELETE', undefined, adminToken)).status, 409);
         const { AppointmentModel } = await import('../../src/modules/appointments/v1/model/appointment.model.js');
         await AppointmentModel.create({
             doctorId: doctor.id, customerId, branchId: firstBranch.id,
             startsAt: new Date('2026-10-25T08:00:00.000Z'), endsAt: new Date('2026-10-25T08:30:00.000Z'),
             timezone: 'Africa/Cairo', durationMinutes: 30, bookedPrice: '100.00', currency: 'EGP',
         });
+        const deactivatedDoctor = await request('/api/v1/admin/doctors/' + doctor.id, 'DELETE', undefined, adminToken);
+        assert.equal(deactivatedDoctor.status, 200);
+        assert.equal(deactivatedDoctor.body.data.doctor.isActive, false);
+        assert.equal(await AppointmentModel.count({ where: { doctorId: doctor.id } }), 1);
+        const reactivatedDoctor = await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { isActive: true }, adminToken);
+        assert.equal(reactivatedDoctor.body.data.doctor.isActive, true);
 
         const deactivatedBranch = await request('/api/v1/admin/branches/' + firstBranch.id, 'DELETE', undefined, adminToken);
         assert.equal(deactivatedBranch.status, 200);
@@ -415,15 +452,18 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     await t.test('models preserve bilingual data, decimal prices and historical branch/price snapshots', async () => {
         const { BranchModel } = await import('../../src/modules/branches/v1/model/branch.model.js');
         const { SpecialtyModel } = await import('../../src/modules/specialties/v1/model/specialty.model.js');
-        const { DoctorModel } = await import('../../src/modules/doctors/v1/model/doctor.model.js');
         const { AppointmentModel } = await import('../../src/modules/appointments/v1/model/appointment.model.js');
         const name = { ar: 'اسم', en: 'Test Name' };
         const branch = await BranchModel.create({ name, address: name });
         const secondBranch = await BranchModel.create({ name, address: name });
         const specialty = await SpecialtyModel.create({ name });
-        const doctorUser = await UserService.createUser({ phone: '01512345678', name: 'Test Doctor', role: Roles.DOCTOR, isVerified: true });
-        const doctor = await DoctorModel.create({ userId: doctorUser.id, branchId: branch.id, specialtyId: specialty.id,
-            name, appointmentPrice: '125.50', currency: 'EGP', appointmentDurationMinutes: 30 });
+        const { DoctorService } = await import('../../src/modules/doctors/v1/doctor.service.js');
+        const doctor = await DoctorService.create({
+            phone: '01512345678', accountName: 'Test Doctor', password: 'DoctorOnly#123',
+            branchId: branch.id, specialtyId: specialty.id,
+            name, appointmentPrice: '125.50', currency: 'EGP', appointmentDurationMinutes: 30,
+        });
+        const doctorUser = doctor.user as UserModel;
         const appointment = await AppointmentModel.create({ doctorId: doctor.id, customerId, branchId: branch.id,
             startsAt: new Date('2026-12-01T10:00:00Z'), endsAt: new Date('2026-12-01T10:30:00Z'),
             timezone: 'Africa/Cairo', durationMinutes: 30, bookedPrice: '125.50', currency: 'EGP' });
@@ -434,6 +474,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.deepEqual((await branch.reload()).name, name);
         await assert.rejects(() => branch.destroy());
         await assert.rejects(() => BranchModel.create({ name: { en: 'Incomplete' }, address: name }));
+        const { DoctorModel } = await import('../../src/modules/doctors/v1/model/doctor.model.js');
         await assert.rejects(() => DoctorModel.create({ userId: doctorUser.id, branchId: branch.id, specialtyId: specialty.id,
             name, appointmentPrice: '-1.00', currency: 'EGP', appointmentDurationMinutes: 0 }));
     });

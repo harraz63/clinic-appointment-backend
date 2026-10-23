@@ -2,9 +2,10 @@ import { HttpResponseError } from '../../../utils/appError.js';
 import { StatusCodes } from 'http-status-codes';
 import { UserModel } from './model/user.model.js';
 import { Op, WhereOptions } from 'sequelize';
-import { Role } from '../../../constants/roles.js';
+import { Role, Roles } from '../../../constants/roles.js';
 import { isStrongPassword } from '../../../utils/password.utils.js';
 import { normalizeEgyptianPhone } from '../../../utils/phone.utils.js';
+import { DoctorModel } from '../../doctors/v1/model/doctor.model.js';
 
 
 export interface UserFilter {
@@ -35,6 +36,9 @@ export class UserService {
     }
 
     static async createUser(userData: Partial<UserModel>): Promise<UserModel> {
+        if (userData.role === Roles.DOCTOR) {
+            throw new HttpResponseError(StatusCodes.UNPROCESSABLE_ENTITY, 'Doctor accounts must be provisioned through doctor management');
+        }
         if (!userData.phone) throw new HttpResponseError(StatusCodes.UNPROCESSABLE_ENTITY, 'Phone must be a valid Egyptian mobile number');
         const phone = normalizeEgyptianPhone(userData.phone);
         const existingUser = await UserModel.findOne({ where: { phone } });
@@ -65,6 +69,16 @@ export class UserService {
             throw new HttpResponseError(StatusCodes.NOT_FOUND, 'User not found');
         }
         const changes = { ...updateData };
+        if (changes.role === Roles.DOCTOR) {
+            throw new HttpResponseError(StatusCodes.UNPROCESSABLE_ENTITY, 'Doctor accounts must be provisioned through doctor management');
+        }
+        const doctorProfile = changes.role === undefined ? null : await DoctorModel.findOne({ where: { userId } });
+        if (changes.role !== undefined && user.role === Roles.DOCTOR) {
+            throw new HttpResponseError(StatusCodes.CONFLICT, 'A doctor account role cannot be changed directly');
+        }
+        if (changes.role !== undefined && doctorProfile) {
+            throw new HttpResponseError(StatusCodes.CONFLICT, 'A user with a doctor profile cannot be assigned another role');
+        }
         if (changes.phone) {
             changes.phone = normalizeEgyptianPhone(changes.phone);
             const duplicate = await UserModel.findOne({ where: { phone: changes.phone } });
@@ -80,6 +94,10 @@ export class UserService {
         const user = await UserModel.findByPk(userId);
         if (!user) {
             throw new HttpResponseError(StatusCodes.NOT_FOUND, 'User not found');
+        }
+        const doctorProfile = await DoctorModel.findOne({ where: { userId } });
+        if (doctorProfile) {
+            throw new HttpResponseError(StatusCodes.CONFLICT, 'A doctor account cannot be deleted while its doctor profile exists');
         }
         await user.destroy();
         return user;

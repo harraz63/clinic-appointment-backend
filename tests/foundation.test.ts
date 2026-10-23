@@ -18,6 +18,10 @@ import { Request, Response } from 'express';
 import { normalizeEgyptianPhone } from '../src/utils/phone.utils.js';
 import { adminBranchListSchema, branchInputSchema, branchUpdateSchema, publicBranchListSchema } from '../src/modules/branches/v1/branch.validation.js';
 import { adminSpecialtyListSchema, publicSpecialtyListSchema, specialtyInputSchema, specialtyUpdateSchema } from '../src/modules/specialties/v1/specialty.validation.js';
+import { adminDoctorListSchema, createDoctorSchema, doctorProfileUpdateSchema } from '../src/modules/doctors/v1/doctor.validation.js';
+import { createUserSchema, updateUserSchema } from '../src/modules/user/v1/user.validation.js';
+import { DoctorService } from '../src/modules/doctors/v1/doctor.service.js';
+import { UserService } from '../src/modules/user/v1/user.service.js';
 
 const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
 
@@ -70,6 +74,25 @@ test('branch and specialty APIs validate bilingual inputs, partial updates and p
     assert.ok(publicSpecialtyListSchema.validate({ isActive: 'false' }).error);
     assert.equal(adminBranchListSchema.validate({ isActive: 'false' }).error, undefined);
     assert.equal(adminSpecialtyListSchema.validate({ isActive: 'true', search: 'Cardiology' }).error, undefined);
+});
+
+test('doctor admin inputs require account and bilingual profile data and only allow supported filters', async () => {
+    const input = {
+        phone: '01012345678', accountName: 'Clinic Doctor', password: 'DoctorOnly#123',
+        branchId: randomUUID(), specialtyId: randomUUID(), name: { ar: 'طبيب', en: 'Doctor' },
+        appointmentPrice: '125.50', appointmentDurationMinutes: 30,
+    };
+    assert.equal(createDoctorSchema.validate(input).error, undefined);
+    assert.ok(createDoctorSchema.validate({ ...input, password: 'weak' }).error);
+    assert.ok(createDoctorSchema.validate({ ...input, userId: randomUUID() }).error);
+    assert.equal(doctorProfileUpdateSchema.validate({ isActive: false }).error, undefined);
+    assert.ok(doctorProfileUpdateSchema.validate({}).error);
+    assert.equal(adminDoctorListSchema.validate({ branchId: input.branchId, specialtyId: input.specialtyId, isActive: 'false', page: '2' }).error, undefined);
+    assert.ok(adminDoctorListSchema.validate({ limit: 101 }).error);
+    assert.ok(createUserSchema.validate({ phone: input.phone, name: input.accountName, password: input.password, role: Roles.DOCTOR }).error);
+    assert.ok(updateUserSchema.validate({ role: Roles.DOCTOR }).error);
+    await assert.rejects(() => DoctorService.create({ ...input, password: 'weak' }), { statusCode: 422 });
+    await assert.rejects(() => UserService.createUser({ phone: input.phone, name: input.accountName, role: Roles.DOCTOR }), { statusCode: 422 });
 });
 
 test('doctor and customer access checks enforce ownership and distinct actions', () => {
