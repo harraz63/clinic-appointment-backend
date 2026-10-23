@@ -1,5 +1,7 @@
 # Doctor schedules foundation
 
-Recurring weekday intervals and dated exceptions/days off are prepared as models and validators. Weekday 0 is Sunday. Local intervals cannot cross midnight. Availability generation, exception precedence and overlap validation remain future services.
+Admins manage each doctor's recurring weekday intervals and dated exceptions. Weekday 0 is Sunday. Times are local to the doctor's assigned branch and cannot cross midnight. Intervals for the same doctor and day cannot overlap; different doctors may work simultaneously. A dated exception replaces regular hours for that date with a day off or replacement intervals.
 
-No HTTP routes are mounted for this module. See [the clinic foundation](../../../../CLINIC_FOUNDATION.md) for relationships, access rules, future routes, verification and roadmap.
+Use `GET` or `PUT /api/v1/admin/doctors/:id/schedules` to read or atomically replace all weekly intervals. `PUT` accepts `{ "intervals": [{ "weekday": 1, "startTime": "09:00", "endTime": "12:00" }] }`; an empty list clears them. Use `GET /api/v1/admin/doctors/:id/schedule-exceptions?from=YYYY-MM-DD&to=YYYY-MM-DD` to list date overrides. `PUT /api/v1/admin/doctors/:id/schedule-exceptions/:date` accepts `{ "isDayOff": true, "reason": { "ar": "...", "en": "..." } }` or `{ "isDayOff": false, "intervals": [{ "startTime": "10:00", "endTime": "12:00" }] }`. `DELETE` on that date restores weekly hours. Responses include the branch timezone. Clear hours and exceptions before changing the doctor's branch.
+
+Availability generation and booking remain future services. See [the clinic foundation](../../../../CLINIC_FOUNDATION.md) for relationships and roadmap.

@@ -332,6 +332,44 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal(updatedDoctorResponse.body.data.doctor.isAvailable, false);
         assert.equal((await request('/api/v1/users/' + doctor.userId, 'PATCH', { role: Roles.USER }, adminToken)).status, 409);
         assert.equal((await request('/api/v1/users/' + doctor.userId, 'DELETE', undefined, adminToken)).status, 409);
+        const schedulePath = '/api/v1/admin/doctors/' + doctor.id + '/schedules';
+        const exceptionPath = '/api/v1/admin/doctors/' + doctor.id + '/schedule-exceptions';
+        assert.equal((await request(schedulePath)).status, 401);
+        assert.equal((await request(schedulePath, 'GET', undefined, accessToken)).status, 403);
+        assert.equal((await request(schedulePath, 'PUT', { intervals: [] }, accessToken)).status, 403);
+        assert.deepEqual((await request(schedulePath, 'GET', undefined, adminToken)).body.data,
+            { timezone: 'Africa/Cairo', intervals: [] });
+        const mondayHours = [{ weekday: 1, startTime: '09:00', endTime: '12:00' }, { weekday: 1, startTime: '12:00', endTime: '15:00' }];
+        assert.equal((await request(schedulePath, 'PUT', { intervals: mondayHours }, adminToken)).status, 200);
+        assert.deepEqual((await request(schedulePath, 'GET', undefined, adminToken)).body.data.intervals, mondayHours);
+        assert.equal((await request(schedulePath, 'PUT', { intervals: [mondayHours[0], { weekday: 1, startTime: '11:59', endTime: '13:00' }] }, adminToken)).status, 409);
+        assert.equal((await request(schedulePath, 'GET', undefined, adminToken)).body.data.intervals.length, 2);
+        assert.equal((await request(schedulePath, 'PUT', { intervals: [{ weekday: 1, startTime: '16:00', endTime: '09:00' }] }, adminToken)).status, 422);
+        assert.equal((await request(schedulePath, 'PUT', { intervals: [{ weekday: '1', startTime: '09:00', endTime: '12:00' }] }, adminToken)).status, 422);
+        assert.equal((await request(schedulePath + '?intervals=invalid', 'PUT', { intervals: mondayHours }, adminToken)).status, 422);
+        assert.equal((await request('/api/v1/admin/doctors/invalid/schedules?id=' + doctor.id, 'GET', undefined, adminToken)).status, 422);
+        const secondDoctorResponse = await request('/api/v1/admin/doctors', 'POST', { ...doctorInput, phone: '01511112226' }, adminToken);
+        assert.equal(secondDoctorResponse.status, 201);
+        const secondDoctorSchedule = '/api/v1/admin/doctors/' + secondDoctorResponse.body.data.doctor.id + '/schedules';
+        assert.equal((await request(secondDoctorSchedule, 'PUT', { intervals: mondayHours }, adminToken)).status, 200);
+        const offDate = exceptionPath + '/2026-11-02';
+        assert.equal((await request(offDate, 'PUT', { isDayOff: true, reason: { ar: 'إجازة', en: 'Day off' } }, adminToken)).status, 200);
+        assert.equal((await request(offDate, 'PUT', { isDayOff: true, intervals: [] }, adminToken)).status, 422);
+        const replacement = [{ startTime: '10:00', endTime: '11:00' }, { startTime: '11:00', endTime: '13:00' }];
+        assert.equal((await request(offDate, 'PUT', { isDayOff: false, intervals: replacement }, adminToken)).status, 200);
+        const exceptions = await request(exceptionPath + '?from=2026-11-01&to=2026-11-30', 'GET', undefined, adminToken);
+        assert.equal(exceptions.status, 200);
+        assert.deepEqual(exceptions.body.data.exceptions[0].intervals, replacement);
+        assert.equal((await request(offDate, 'PUT', { isDayOff: false, intervals: [{ startTime: '10:00', endTime: '12:00' }, { startTime: '11:00', endTime: '13:00' }] }, adminToken)).status, 409);
+        assert.equal((await request(exceptionPath + '?from=2026-12-01&to=2026-11-01', 'GET', undefined, adminToken)).status, 422);
+        assert.equal((await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { branchId: secondBranch.id }, adminToken)).status, 409);
+        assert.equal((await request(schedulePath, 'PUT', { intervals: [] }, adminToken)).status, 200);
+        assert.equal((await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { branchId: secondBranch.id }, adminToken)).status, 409);
+        assert.equal((await request(offDate, 'DELETE', undefined, adminToken)).status, 200);
+        assert.equal((await request(offDate, 'DELETE', undefined, adminToken)).status, 404);
+        assert.deepEqual((await request(exceptionPath + '?from=2026-11-01&to=2026-11-30', 'GET', undefined, adminToken)).body.data.exceptions, []);
+        assert.equal((await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { branchId: secondBranch.id }, adminToken)).status, 200);
+        assert.equal((await request('/api/v1/admin/doctors/' + doctor.id, 'PATCH', { branchId: firstBranch.id }, adminToken)).status, 200);
         const { AppointmentModel } = await import('../../src/modules/appointments/v1/model/appointment.model.js');
         await AppointmentModel.create({
             doctorId: doctor.id, customerId, branchId: firstBranch.id,

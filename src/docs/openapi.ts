@@ -31,7 +31,7 @@ export const openapiDocument = {
     info: {
         title: 'Clinic Appointment Backend API',
         version: '1.0.0',
-        description: 'HTTP API for authentication, user management, clinic catalogs, doctor administration, media, and service health.',
+        description: 'HTTP API for authentication, user management, clinic catalogs, doctor administration and schedules, media, and service health.',
     },
     servers: [{ url: '/', description: 'Current API origin' }],
     tags: [
@@ -228,9 +228,45 @@ export const openapiDocument = {
                         appointmentPrice: { type: 'string', pattern: '^\\d{1,10}\\.\\d{2}$' }, currency: { type: 'string', pattern: '^[A-Z]{3}$' }, appointmentDurationMinutes: { type: 'integer', minimum: 1 }, isAvailable: { type: 'boolean' }, isActive: { type: 'boolean' },
                     },
                 }),
-                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' }, '422': { description: 'Branch and specialty assignments must be active' } },
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' }, '409': { description: 'Saved hours or exceptions must be cleared before branch reassignment' }, '422': { description: 'Branch and specialty assignments must be active' } },
             },
             delete: { tags: ['Doctors'], summary: 'Deactivate a doctor profile and retain its account and history (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Doctor not found' } } },
+        },
+        '/api/v1/admin/doctors/{id}/schedules': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Doctors'], summary: 'Get weekly doctor hours and branch timezone (admin only)', security: secured, responses: { ...successResponse, '404': { description: 'Doctor not found' } } },
+            put: {
+                tags: ['Doctors'], summary: 'Replace all weekly doctor hours (admin only)', security: secured,
+                description: 'Weekday 0 is Sunday. Times are local to the assigned branch. Intervals for one doctor may not overlap; an empty list clears the schedule.',
+                requestBody: jsonRequest({ type: 'object', required: ['intervals'], additionalProperties: false, properties: {
+                    intervals: { type: 'array', items: { type: 'object', required: ['weekday', 'startTime', 'endTime'], additionalProperties: false, properties: {
+                        weekday: { type: 'integer', minimum: 0, maximum: 6 }, startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }, endTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+                    } } },
+                } }),
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' }, '409': { description: 'Intervals overlap' } },
+            },
+        },
+        '/api/v1/admin/doctors/{id}/schedule-exceptions': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Doctors'], summary: 'List dated schedule exceptions (admin only)', security: secured,
+                parameters: [{ in: 'query', name: 'from', required: true, schema: { type: 'string', format: 'date' } }, { in: 'query', name: 'to', required: true, schema: { type: 'string', format: 'date' } }],
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' } },
+            },
+        },
+        '/api/v1/admin/doctors/{id}/schedule-exceptions/{date}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }, { in: 'path', name: 'date', required: true, schema: { type: 'string', format: 'date' } }],
+            put: { tags: ['Doctors'], summary: 'Set a day off or replacement intervals for one local date (admin only)', security: secured,
+                requestBody: jsonRequest({ type: 'object', required: ['isDayOff'], additionalProperties: false, properties: {
+                    isDayOff: { type: 'boolean' }, reason: { $ref: '#/components/schemas/LocalizedText' },
+                    intervals: { type: 'array', minItems: 1, items: { type: 'object', required: ['startTime', 'endTime'], additionalProperties: false, properties: {
+                        startTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }, endTime: { type: 'string', pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' },
+                    } } },
+                } }),
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor not found' }, '409': { description: 'Replacement intervals overlap' } },
+            },
+            delete: { tags: ['Doctors'], summary: 'Remove the date exception and restore weekly hours (admin only)', security: secured,
+                responses: { ...successResponse, ...validationError, '404': { description: 'Doctor or exception not found' } },
+            },
         },
         '/api/v1/auth/register': {
             post: {
