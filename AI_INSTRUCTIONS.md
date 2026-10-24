@@ -23,7 +23,7 @@ When documentation disagrees with code, inspect executable behavior and update s
 
 ## Current implementation boundary
 
-The repository is an Express API foundation for a clinic appointment project. It has users, authentication, sessions, media, metadata, constants, a database health endpoint, branch/specialty catalog APIs, admin doctor account/profile management, and admin doctor schedules. Other clinic models, migrations, validators, typed inputs, and appointment ownership helpers are prepared under versioned modules. Public doctor browsing, appointment slots, booking rules, and medical-record workflows remain unimplemented. The roadmap and contracts are documented in [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md).
+The repository is an Express API foundation for a clinic appointment project. It has users, authentication, sessions, media, metadata, constants, a database health endpoint, branch/specialty catalog APIs, admin doctor account/profile management, and admin doctor schedules. Other clinic models, migrations, validators, typed inputs, and appointment ownership helpers are prepared under versioned modules. Public doctor browsing, timezone-aware slots, automatically confirmed customer booking and personal history are implemented. Lifecycle actions and medical-record workflows remain unimplemented. The roadmap and contracts are documented in [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md).
 
 Use the existing Express, Joi, Sequelize, Passport/JWT, Zod, i18n, Redis, and storage patterns. Native ESM is enabled through `package.json` and TypeScript's NodeNext configuration. Swagger UI is mounted at `/api/docs`, with its OpenAPI JSON at `/api/docs/openapi.json`; keep `src/docs/openapi.ts` aligned with implemented routes. There is no NestJS, TypeORM, queue, or Socket.IO server.
 
@@ -99,7 +99,7 @@ Both Docker startup scripts run migrations and seeding on each start. Seeding re
 
 ## Clinic persistence and contracts
 
-See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md). Initialize associations explicitly through `initializeAssociations()`; it is idempotent and never synchronizes tables. Preserve domain history with restrictive foreign keys and active flags. UTC appointment timestamps and booked snapshots are distinct from branch-local schedule intervals. Money stays decimal strings. Joi normalized output still is not written back to requests; controllers/services must explicitly normalize validated input. Mount clinic routes only when their real services exist; doctor administration and admin schedule management are implemented, while availability and booking are not.
+See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md). Initialize associations explicitly through `initializeAssociations()`; it is idempotent and never synchronizes tables. Preserve domain history with restrictive foreign keys and active flags. UTC appointment timestamps and booked snapshots are distinct from branch-local schedule intervals. Money stays decimal strings. Joi normalized output still is not written back to requests; controllers/services must explicitly normalize validated input. Mount clinic routes only when their real services exist; doctor administration, schedules, public browsing, availability and customer booking/history are implemented. Booking derives identity and snapshots, locks customer/doctor/eligibility records, and rechecks the exact slot. Migration 005 prevents doctor and customer overlaps for all non-cancelled appointments; retain it for every future appointment write path.
 
 ## Incompatible database histories
 
