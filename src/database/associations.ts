@@ -6,6 +6,7 @@ import { DoctorModel } from '../modules/doctors/v1/model/doctor.model.js';
 import { DoctorScheduleModel } from '../modules/doctor-schedules/v1/model/doctor-schedule.model.js';
 import { ScheduleExceptionModel } from '../modules/doctor-schedules/v1/model/schedule-exception.model.js';
 import { AppointmentModel } from '../modules/appointments/v1/model/appointment.model.js';
+import { AppointmentHistoryModel } from '../modules/appointments/v1/model/appointment-history.model.js';
 import { PaymentMethodModel } from '../modules/payments/v1/model/payment-method.model.js';
 import { PaymentRecordModel } from '../modules/payments/v1/model/payment-record.model.js';
 import { NotificationModel } from '../modules/notifications/v1/model/notification.model.js';
@@ -30,6 +31,9 @@ export function initializeAssociations(): void {
     AppointmentModel.belongsTo(DoctorModel, { foreignKey: 'doctorId', as: 'doctor' });
     BranchModel.hasMany(AppointmentModel, { foreignKey: 'branchId', as: 'appointments' });
     AppointmentModel.belongsTo(BranchModel, { foreignKey: 'branchId', as: 'branch' });
+    AppointmentModel.hasMany(AppointmentHistoryModel, { foreignKey: 'appointmentId', as: 'history' });
+    AppointmentHistoryModel.belongsTo(AppointmentModel, { foreignKey: 'appointmentId', as: 'appointment' });
+    AppointmentHistoryModel.belongsTo(UserModel, { foreignKey: 'actorId', as: 'actor' });
     AppointmentModel.hasMany(PaymentRecordModel, { foreignKey: 'appointmentId', as: 'payments' });
     PaymentRecordModel.belongsTo(AppointmentModel, { foreignKey: 'appointmentId', as: 'appointment' });
     PaymentMethodModel.hasMany(PaymentRecordModel, { foreignKey: 'paymentMethodId', as: 'payments' });

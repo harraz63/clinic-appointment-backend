@@ -12,9 +12,9 @@ These instructions apply throughout Clinic Appointment Backend. Read [ARCHITECTU
 
 ## Project facts
 
-- This repository is the foundation for a clinic appointment backend. Clinic domain models, migrations, bilingual validation, and ownership contracts are prepared. Catalog, admin doctor/schedule, public doctor browsing, availability, and confirmed customer booking/history endpoints are implemented; lifecycle actions remain future work. See CLINIC_FOUNDATION.md.
+- This repository is the foundation for a clinic appointment backend. Clinic domain models, migrations, bilingual validation, and ownership contracts are prepared. Catalog, admin doctor/schedule, public doctor browsing, availability, and confirmed customer booking/history endpoints, appointment lifecycle actions, staff appointment views and audit history are implemented. See CLINIC_FOUNDATION.md.
 - The current application uses TypeScript, native ES modules, Express 4, Sequelize 6, and PostgreSQL. Docker targets Node.js 20 and provisions PostgreSQL 16 and Redis 7.
-- Implemented HTTP areas are authentication, administrator user management, self-profile management, catalog, admin doctor and schedule management, public doctor browsing/availability, customer booking/history, public media upload/retrieval, constants, metadata, and database health.
+- Implemented HTTP areas are authentication, administrator user management, self-profile management, catalog, admin doctor and schedule management, public doctor browsing/availability, customer booking/history, appointment lifecycle/audit history and staff appointment views, public media upload/retrieval, constants, metadata, and database health.
 - Roles are `admin`, `doctor`, and `customer`. `Roles.USER` is a compatibility key with value `customer` because migration 001 imports it. Public registration forbids role, verification, and blocking fields and always creates customers.
 - Redis backs pending signup and OTP state. OTP issuance endpoints currently return codes in `data.otp`; no SMS provider is configured. Account identity is an Egyptian phone number; clinic contact email fields are separate. Firebase, SMTP, FCM, and Google authentication have been removed. Swagger UI is available at `/api/docs`, with OpenAPI JSON at `/api/docs/openapi.json`; there is no notification worker.
 
@@ -54,7 +54,7 @@ npm run build
 npm test
 ```
 
-`npx tsc --noEmit` is useful for a type check without emitted build files. `npm test` runs focused Node test-runner tests through tsx. `npm run test:integration` requires Docker and creates/removes its own loopback-only PostgreSQL 16 container; it does not use the configured database or run seed. Do not invent a documentation validation command.
+`npx tsc --noEmit` is useful for a type check without emitted build files. `npm test` runs focused Node test-runner tests through tsx. `npm run test:integration` requires Docker and creates/removes its own loopback-only PostgreSQL 16 and Redis 7 containers; it asserts the selected connection matches its disposable database before any database operation and does not run seed. Import database-backed helpers only after container configuration and this assertion. Do not invent a documentation validation command.
 
 Validate both Compose configurations when Docker, startup, or environment behavior changes:
 
@@ -69,10 +69,10 @@ Keep these four documents synchronized with executable behavior. Handoffs should
 
 ## Clinic foundation constraints
 
-- Migrations 002 and 003 prepare clinic roles, remove FCM storage, and create domain tables; migration 004 renames `users.provider` to `users.phone`; migration 005 adds doctor/customer overlap protection using `btree_gist`. Migration 001 remains unchanged. Do not use schema synchronization.
+- Migrations 002 and 003 prepare clinic roles, remove FCM storage, and create domain tables; migration 004 renames `users.provider` to `users.phone`; migration 005 adds doctor/customer overlap protection using `btree_gist`. Migration 006 adds transactional appointment audit history. Migration 001 remains unchanged. Do not use schema synchronization.
 - Legacy `user` accounts convert to `customer`; other inherited roles block migration for manual resolution. Role rollback refuses doctor accounts or refresh tokens over 255 characters, restores customers to `user`, and narrows token storage. Removed FCM values cannot be restored.
 - Persist bilingual business text as JSONB `{ ar, en }`; return both languages. Money uses DECIMAL(12,2) and decimal strings. Booking services must snapshot price, currency, duration, timezone, and branch.
-- Schedules use branch-local times; appointments use UTC instants. Availability and confirmed customer booking are implemented. Migration 005 prevents doctor/customer overlaps for non-cancelled appointments. Lifecycle actions and notification delivery remain unimplemented.
+- Schedules use branch-local times; appointments use UTC instants. Availability and confirmed customer booking are implemented. Migration 005 prevents doctor/customer overlaps for non-cancelled appointments. Lifecycle actions and ownership-scoped audit history are implemented; notification delivery remains unimplemented.
 
 ## Migration history safety
 

@@ -32,8 +32,8 @@ const clinicSuccess = (data: object, code = '200') => ({
     } } } },
 });
 const clinicErrors = Object.fromEntries([401, 403, 404, 409, 422].map(code => [String(code), {
-    description: ({ 401: 'Authentication required', 403: 'Customer role required', 404: 'Resource not found or not visible',
-        409: 'Unavailable slot or overlapping appointment', 422: 'Invalid request or date range' })[code],
+    description: ({ 401: 'Authentication required', 403: 'Required role or action permission missing', 404: 'Resource not found or not visible',
+        409: 'Unavailable slot, overlap, or disallowed lifecycle transition', 422: 'Invalid request or date range' })[code],
     content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
 }]));
 const clinicPagination = [
@@ -47,12 +47,59 @@ const clinicCollection = (item: string) => ({
     },
 });
 
+const appointmentIdParameter = [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }];
+const appointmentResult = { type: 'object', required: ['appointment'], properties: { appointment: { $ref: '#/components/schemas/Appointment' } } };
+const lifecycleOperation = (summary: string, description: string, data: object = appointmentResult) => ({
+    tags: ['Appointments'], security: secured, summary, description,
+    responses: { ...clinicSuccess(data), ...clinicErrors },
+});
+const rescheduleOperation = {
+    ...lifecycleOperation('Reschedule an appointment', 'Original and destination starts must be future; pending/confirmed only. Same ID and doctor, original price/currency, current branch/timezone/duration. Revalidates exact slots and customer conflicts. Status is preserved; identical start conflicts. PATCH query parameters are rejected.'),
+    requestBody: jsonRequest({ type: 'object', additionalProperties: false, required: ['startsAt'], properties: {
+        startsAt: { type: 'string', format: 'date-time', description: 'Seconds and Z or explicit numeric offset required, up to milliseconds.' },
+    } }),
+};
+const historyOperation = {
+    ...lifecycleOperation('Read appointment change history', 'Same ownership boundary as appointment detail. Ordered by event time then ID ascending. Actor account IDs are omitted. Existing appointments have no fabricated booking events.', clinicCollection('AppointmentHistory')),
+    parameters: clinicPagination,
+};
+const lifecyclePaths = {
+    '/api/v1/appointments/{id}/cancel': { parameters: appointmentIdParameter, patch: {
+        ...lifecycleOperation('Cancel an owned appointment', 'Customer only; pending/confirmed and strictly before start. Releases the slot. Terminal/repeated actions return 409.'),
+        requestBody: { ...jsonRequest({ type: 'object', additionalProperties: false }), required: false },
+    } },
+    '/api/v1/appointments/{id}/reschedule': { parameters: appointmentIdParameter, patch: rescheduleOperation },
+    '/api/v1/appointments/{id}/history': { parameters: appointmentIdParameter, get: historyOperation },
+    ...Object.fromEntries(['doctor', 'admin'].flatMap(role => {
+        const base = '/api/v1/' + role + '/appointments';
+        return [
+            [base, { get: {
+                ...lifecycleOperation('List ' + role + ' appointments', role === 'doctor' ? 'Assigned doctor only, derived from authentication; inactive profiles remain accessible. Ordered by start then ID ascending.' : 'Admin only; all appointments, ordered by start then ID ascending.', clinicCollection('Appointment')),
+                parameters: [...clinicPagination,
+                    ...['branchId', 'customerId', ...(role === 'admin' ? ['doctorId'] : [])].map(name => ({ in: 'query', name, schema: { type: 'string', format: 'uuid' } })),
+                    { in: 'query', name: 'status', schema: { type: 'string', enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'] } },
+                    ...['from', 'to'].map(name => ({ in: 'query', name, schema: { type: 'string', format: 'date-time' }, description: name === 'from' ? 'Inclusive UTC instant lower bound on startsAt' : 'Exclusive UTC instant upper bound on startsAt; must be after from' })),
+                ],
+            } }],
+            [base + '/{id}', { parameters: appointmentIdParameter, get: lifecycleOperation('Read ' + role + ' appointment', 'Role and database-derived ownership enforced; out-of-scope IDs return 404.') }],
+            [base + '/{id}/history', { parameters: appointmentIdParameter, get: historyOperation }],
+            [base + '/{id}/status', { parameters: appointmentIdParameter, patch: {
+                ...lifecycleOperation('Change appointment status', 'Confirm pending before start; complete/no-show confirmed at or after start. Terminal/repeated transitions conflict. Admin may additionally cancel pending/confirmed at any time. Inactive profiles do not block historical actions. PATCH query parameters are rejected.'),
+                requestBody: jsonRequest({ type: 'object', additionalProperties: false, required: ['status'], properties: {
+                    status: { type: 'string', enum: ['confirmed', 'completed', 'no_show', ...(role === 'admin' ? ['cancelled'] : [])] },
+                } }),
+            } }],
+            ...(role === 'admin' ? [[base + '/{id}/reschedule', { parameters: appointmentIdParameter, patch: rescheduleOperation }]] : []),
+        ];
+    })),
+};
+
 export const openapiDocument = {
     openapi: '3.0.3',
     info: {
         title: 'Clinic Appointment Backend API',
         version: '1.0.0',
-        description: 'HTTP API for authentication, user management, clinic catalogs, public doctors, availability, customer booking/history, doctor administration and schedules, media, and service health.',
+        description: 'HTTP API for authentication, user management, clinic catalogs, public doctors, availability, booking, lifecycle actions and audit history, staff appointment views, doctor administration and schedules, media, and service health.',
     },
     servers: [{ url: '/', description: 'Current API origin' }],
     tags: [
@@ -66,6 +113,7 @@ export const openapiDocument = {
         { name: 'Media' },
     ],
     paths: {
+        ...lifecyclePaths,
         '/api/v1/doctors': {
             get: {
                 tags: ['Doctors'], summary: 'Browse public doctors',
@@ -593,6 +641,25 @@ export const openapiDocument = {
                     ...Object.fromEntries(['startsAt', 'endsAt', 'createdAt', 'updatedAt'].map(key => [key, { type: 'string', format: 'date-time' }])),
                     timezone: { type: 'string' }, durationMinutes: { type: 'integer' }, bookedPrice: { type: 'string', example: '125.50' },
                     currency: { type: 'string', example: 'EGP' }, status: { type: 'string', enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'] },
+                },
+            },
+            AppointmentSnapshot: {
+                type: 'object', additionalProperties: false,
+                required: ['status', 'startsAt', 'endsAt', 'branchId', 'timezone', 'durationMinutes', 'bookedPrice', 'currency'],
+                properties: {
+                    status: { type: 'string', enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'] },
+                    startsAt: { type: 'string', format: 'date-time' }, endsAt: { type: 'string', format: 'date-time' },
+                    branchId: { type: 'string', format: 'uuid' }, timezone: { type: 'string' }, durationMinutes: { type: 'integer' },
+                    bookedPrice: { type: 'string', example: '125.50' }, currency: { type: 'string', example: 'EGP' },
+                },
+            },
+            AppointmentHistory: {
+                type: 'object', additionalProperties: false, required: ['id', 'action', 'occurredAt', 'actorRole', 'before', 'after'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' }, action: { type: 'string', enum: ['booked', 'confirm', 'complete', 'no_show', 'cancel', 'reschedule'] },
+                    occurredAt: { type: 'string', format: 'date-time' }, actorRole: { type: 'string', enum: ['admin', 'doctor', 'customer'] },
+                    before: { nullable: true, allOf: [{ $ref: '#/components/schemas/AppointmentSnapshot' }] },
+                    after: { $ref: '#/components/schemas/AppointmentSnapshot' },
                 },
             },
             LocalizedText: {

@@ -4,7 +4,7 @@
 
 The original template provided Express 4, TypeScript 5 with native ESM, Sequelize 6/PostgreSQL, Passport/JWT sessions, Joi, Zod configuration, Arabic/English i18n, Winston, and public media through StorageFactory. These remain the foundation. There is no frontend or multi-tenant organization model. TypeScript remains `strict: false`.
 
-Authentication, administrator user management, profile management, public media, constants, metadata, database health, branch/specialty catalog, admin doctor management, and admin schedules have real HTTP handlers. Branches and specialties support admin CRUD and public active browsing with bilingual name search and pagination. Doctor administration atomically provisions a doctor-role account and profile, supports admin profile CRUD and filtering, and deactivates profiles while retaining accounts/history. Admins manage each doctor's weekly hours and dated exceptions in branch-local time. Remaining clinic modules provide persistence definitions and development contracts only. Public doctors, timezone-aware availability and automatically confirmed customer booking/history are implemented. Appointment lifecycle actions, dashboards and payment workflows remain unimplemented.
+Authentication, administrator user management, profile management, public media, constants, metadata, database health, branch/specialty catalog, admin doctor management, and admin schedules have real HTTP handlers. Branches and specialties support admin CRUD and public active browsing with bilingual name search and pagination. Doctor administration atomically provisions a doctor-role account and profile, supports admin profile CRUD and filtering, and deactivates profiles while retaining accounts/history. Admins manage each doctor's weekly hours and dated exceptions in branch-local time. Remaining clinic modules provide persistence definitions and development contracts only. Public doctors, timezone-aware availability and automatically confirmed customer booking/history are implemented. Appointment lifecycle actions, staff appointment views and audit history are implemented. Dashboards and payment workflows remain unimplemented.
 
 Removed inherited functionality: Firebase helper, SMTP transport/configuration, FCM device-token endpoint/storage, and their direct Firebase/Nodemailer dependencies. Google authentication was previously optional; it has since been removed with its verifier and Passport strategy dependencies. The legacy googleId database column remains to preserve existing account data. Existing Docker migration/seed behavior is unchanged.
 
@@ -55,7 +55,7 @@ Database checks enforce nonnegative monetary values, positive durations, valid w
 
 Money uses PostgreSQL DECIMAL(12,2), TypeScript strings, and decimal-string response values. `CLINIC_CURRENCY` defaults to EGP for doctor model creation. Appointments and payment records require explicit snapshot currencies. Revenue aggregation must group by currency; do not sum different currencies into one amount.
 
-Appointment statuses are pending, confirmed, completed, cancelled, and no_show. Payment statuses are unpaid, paid, and refunded. They are independent strings constrained by database checks; extending a status requires a new migration and matching type/constants. New bookings explicitly use confirmed status; further lifecycle transitions remain unimplemented.
+Appointment statuses are pending, confirmed, completed, cancelled, and no_show. Payment statuses are unpaid, paid, and refunded. They are independent strings constrained by database checks; extending a status requires a new migration and matching type/constants. New bookings explicitly use confirmed status; lifecycle services enforce the transitions described in README.
 
 The database does not enforce that a profile's user has the doctor role or an appointment's user has the customer role. Booking services check these facts and the doctor's current branch when creating records. Later doctor reassignment and price/duration changes must never overwrite historical appointment snapshots. Price and ownership IDs in internal persistence inputs must be derived by services, not trusted from a booking request.
 
@@ -64,8 +64,8 @@ The database does not enforce that a profile's user has the doctor role or an ap
 | Actor | Prepared appointment permissions |
 | --- | --- |
 | Admin | All initial actions across appointments; future branch, specialty, doctor, cash collection and dashboard management. |
-| Doctor | View, confirm, complete and mark no-show only when the doctor profile's userId matches authenticated identity. Cancellation/rescheduling is denied initially. |
-| Customer | View, cancel and reschedule only their own appointments; future clinic policies further restrict cancellation/rescheduling. |
+| Doctor | View, confirm, complete and mark no-show only when the doctor profile's userId matches authenticated identity. Cancellation/rescheduling remains denied. |
+| Customer | View, cancel and reschedule only their own appointments; changes require pending/confirmed status and a future start. |
 | Public | Active branch/specialty/doctor browsing and availability; booking always requires customer authentication. |
 
 `assertAppointmentPermission` takes database-derived ownership facts, including doctorUserId (an account ID, not the doctor profile ID). Role middleware alone cannot authorize individual resources. Dashboard and inbox services must apply the same ownership boundaries in database queries.
@@ -89,24 +89,22 @@ Catalog list endpoints validate pagination (page 1, limit 10, maximum 100) and c
 | Admin doctors | CRUD /api/v1/admin/doctors | Admin; transactional account/profile creation; delete deactivates profile |
 | Admin schedules | GET/PUT /api/v1/admin/doctors/:id/schedules; GET /schedule-exceptions with from/to; PUT/DELETE /schedule-exceptions/:date | Admin; date exceptions replace weekly hours |
 | Public doctors | GET /api/v1/doctors, /doctors/:id, /doctors/:id/availability | Safe active profiles and slots |
-| Customer appointments | POST/GET /api/v1/appointments; GET /appointments/:id | Confirmed booking and own history/detail |
+| Customer appointments | POST/GET /api/v1/appointments; GET /appointments/:id; PATCH /appointments/:id/cancel or /reschedule; GET /appointments/:id/history | Confirmed booking, own history/detail, actions and audit events |
+| Staff appointments | GET /api/v1/doctor/appointments or /admin/appointments, /:id and /:id/history; PATCH /:id/status; admin PATCH /:id/reschedule | Assigned doctor or admin scope |
 
 ### Future route map — not mounted
 
 | Area | Proposed routes | Authorization |
 | --- | --- | --- |
-| Appointment actions | PATCH /api/v1/appointments/:id/cancel or /reschedule | Customer ownership and future policy |
-| Doctor work | GET /api/v1/doctor/appointments, /doctor/schedule; PATCH /doctor/appointments/:id/status | Doctor ownership and allowed actions |
-| Admin appointments | GET /api/v1/admin/appointments; PATCH /admin/appointments/:id/status | Admin |
 | Cash collection | PATCH /api/v1/admin/appointments/:id/payment | Admin; explicit audit identity/time |
 | Inbox | GET /api/v1/notifications; PATCH /notifications/:id/read | Authenticated recipient ownership |
 | Dashboards | GET /api/v1/admin/dashboard and /doctor/dashboard | Role; doctor query scope derived from identity |
 
-Existing auth, user, catalog, doctor, schedule, browsing, availability, booking/history, media, constants, metadata and health routes are documented in README and OpenAPI. The future route map is guidance for later features.
+Existing auth, user, catalog, doctor, schedule, browsing, availability, booking/history, media, constants, metadata and health routes are documented in README and OpenAPI. Doctor self-schedule views remain future work alongside the future routes above.
 
 ## Scheduling, payments, and inbox boundaries
 
-Schedules store branch-local weekdays/times; exceptions store local dates. Admin schedule writes reject overlaps within one doctor's day; concurrent doctors may work in the same branch. Changing a doctor's branch requires clearing saved hours and exceptions. Appointments store UTC instants and the booked IANA timezone. The shared slot generator honors exceptions, duration and active state, skips ambiguous/nonexistent boundaries and clock-transition crossings, and removes all non-cancelled doctor bookings. Windows include today through +90 branch-local days; each availability request covers at most 31 inclusive dates. Booking revalidates the exact future slot transactionally and checks customer overlaps. Migration 005 enforces doctor/customer exclusion constraints using btree_gist and half-open UTC ranges; adjacent appointments are allowed. New appointments explicitly use confirmed status. Lifecycle transitions remain future work.
+Schedules store branch-local weekdays/times; exceptions store local dates. Admin schedule writes reject overlaps within one doctor's day; concurrent doctors may work in the same branch. Changing a doctor's branch requires clearing saved hours and exceptions. Appointments store UTC instants and the booked IANA timezone. The shared slot generator honors exceptions, duration and active state, skips ambiguous/nonexistent boundaries and clock-transition crossings, and removes all non-cancelled doctor bookings. Windows include today through +90 branch-local days; each availability request covers at most 31 inclusive dates. Booking revalidates the exact future slot transactionally and checks customer overlaps. Migration 005 enforces doctor/customer exclusion constraints using btree_gist and half-open UTC ranges; adjacent appointments are allowed. New appointments explicitly use confirmed status. Lifecycle transitions and append-only audit history are implemented; see README for the timing rules.
 
 The initial method is cash at clinic. Future admin services will mark cash received and maintain payment totals independently of appointment status. Multiple records per appointment allow later payment history; overpayment, refunds, idempotency and allocation rules are not implemented. Manual methods can later add verification/reference/proof metadata through additive migrations. Public media must not be used for sensitive proof or clinical records.
 
@@ -130,7 +128,7 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 2. Add transactional doctor account/profile provisioning, branch assignment, specialty and price management; verify role/profile consistency. (Implemented.)
 3. Add schedule and exception management with timezone rules and conflict validation. (Implemented.)
 4. Implement availability and atomic booking, including database-backed double-booking protection and booked snapshots. (Implemented, including public doctor browsing and customer history.)
-5. Implement appointment actions and policy-based cancellation/rescheduling with ownership checks and audit history.
+5. Implement appointment actions and policy-based cancellation/rescheduling with ownership checks and audit history. (Implemented, including doctor/admin appointment views.)
 6. Add cash collection, independent payment state and currency-aware totals.
 7. Add inbox event creation and recipient-scoped list/read endpoints; reminders remain a later scheduling feature.
 8. Implement admin/doctor dashboard queries with date and branch filters, currency grouping and doctor ownership scope.
@@ -139,7 +137,7 @@ Provider-backed Google OAuth, a complete production image deployment, and unimpl
 
 Public doctor list/detail endpoints expose bilingual safe profiles with branch/specialty filters and pagination. Availability returns date-grouped UTC slots from branch-local weekly hours and exceptions; requests cover at most 31 dates within today through +90 days. Slots with ambiguous/nonexistent boundaries or clock-transition crossings are omitted. Unavailable doctors remain discoverable with empty availability.
 
-Customer-only booking rechecks eligibility and exact slots transactionally, automatically confirms appointments, rejects customer overlaps and snapshots branch, timezone, duration, decimal price, currency and UTC times. Customer list/detail queries enforce ownership. Duplicates, unavailable doctors and stale slots return localized conflicts; schedule/profile changes retain booked snapshots. Cancellation, rescheduling, staff lifecycle actions, payments and notifications remain future work.
+Customer-only booking rechecks eligibility and exact slots transactionally, automatically confirms appointments, rejects customer overlaps and snapshots branch, timezone, duration, decimal price, currency and UTC times. Customer list/detail queries enforce ownership. Duplicates, unavailable doctors and stale slots return localized conflicts; schedule/profile changes retain booked snapshots. Cancellation, rescheduling, staff lifecycle actions and audit history are now implemented. Payments and notifications remain future work.
 
 Migration 005 installs `btree_gist` and doctor/customer exclusion constraints for non-cancelled half-open UTC ranges. Existing conflicts stop migration without modifying records; rollback retains appointments and the extension. Apply it before deploying booking routes, with database extension installation permission or prior provisioning. No configured application database or seed was used for verification.
 
@@ -177,3 +175,12 @@ Verification: `npm run lint`, `npm run build`, `npm test` (12 tests), and `npm r
 A database recorded with an earlier schema lineage (for example 002-add-clinic-roles and 003-clinic-domain) can contain incompatible columns such as dayOfWeek and separate appointment date/time fields. Migration 003 cannot safely reuse those tables. The runner now rejects unregistered names before up/down changes. Use npm run migrate:status for read-only diagnosis; it also works without creating SequelizeMeta on a fresh database. Use a new empty database or prepare an explicit compatibility migration. Never remove bookkeeping, rename one column blindly, or roll back existing data to force installation. Historical migration files remain unchanged. Source CLI commands use node --import tsx to avoid ts-node loader warnings.
 
 Follow-up verification: lint, build, ten unit tests, seven isolated PostgreSQL/HTTP scenarios (eight runner tests including their parent), and both Compose checks passed. Compiled API startup, metadata and database health also passed against the newly initialized local database. Existing database contents and historical migration files were preserved.
+
+
+## Lifecycle delivery and verification (2026-10-24)
+
+Migration 006 adds appointment_history with transactional booking/action events and before/after snapshots, restrictive appointment references and nullable actor references. Apply it before deploying the updated booking and lifecycle routes. Rollback removes history only; existing appointments receive no backfilled events. The lifecycle policies, routes and list/history contracts are documented in README and OpenAPI.
+
+During initial lifecycle verification, an eager integration-helper import selected the configured local development database before disposable-container configuration. The failed run affected its clinic tables, doctor accounts and sessions. The owner confirmed this database was disposable and authorized resetting it. Recovery targeted only the verified loopback development database, reset its public schema and reapplied migrations 001 through 006 without seeding. The test entrypoint now loads the helper dynamically and checks database/Redis targets before service operations. Corrected integration verification uses disposable containers only.
+
+Verification after recovery: npm run lint and npm run build passed; npm test passed 24 tests; npm run test:integration passed 26 runner tests using disposable PostgreSQL 16 and Redis 7 containers, which were removed afterward. All six migrations and 14 application tables were confirmed in the recovered local development database, including doctor/customer overlap constraints and restrictive/nulling audit foreign keys. A read-only data/constraint fingerprint matched before and after the final test run. No accounts were seeded. The Docker Node 20 production image was not built or deployed.
