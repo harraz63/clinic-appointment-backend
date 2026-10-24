@@ -26,12 +26,33 @@ const validationError = {
 
 const secured = [{ bearerAuth: [] }];
 
+const clinicSuccess = (data: object, code = '200') => ({
+    [code]: { description: 'Successful response', content: { 'application/json': { schema: {
+        type: 'object', required: ['status', 'data'], properties: { status: { type: 'string', enum: ['success'] }, data },
+    } } } },
+});
+const clinicErrors = Object.fromEntries([401, 403, 404, 409, 422].map(code => [String(code), {
+    description: ({ 401: 'Authentication required', 403: 'Customer role required', 404: 'Resource not found or not visible',
+        409: 'Unavailable slot or overlapping appointment', 422: 'Invalid request or date range' })[code],
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+}]));
+const clinicPagination = [
+    { in: 'query', name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+    { in: 'query', name: 'limit', schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 } },
+];
+const clinicCollection = (item: string) => ({
+    type: 'object', required: ['items', 'page', 'limit', 'total', 'totalPages'], properties: {
+        items: { type: 'array', items: { $ref: '#/components/schemas/' + item } },
+        page: { type: 'integer' }, limit: { type: 'integer' }, total: { type: 'integer' }, totalPages: { type: 'integer' },
+    },
+});
+
 export const openapiDocument = {
     openapi: '3.0.3',
     info: {
         title: 'Clinic Appointment Backend API',
         version: '1.0.0',
-        description: 'HTTP API for authentication, user management, clinic catalogs, doctor administration and schedules, media, and service health.',
+        description: 'HTTP API for authentication, user management, clinic catalogs, public doctors, availability, customer booking/history, doctor administration and schedules, media, and service health.',
     },
     servers: [{ url: '/', description: 'Current API origin' }],
     tags: [
@@ -41,9 +62,63 @@ export const openapiDocument = {
         { name: 'Branches' },
         { name: 'Specialties' },
         { name: 'Doctors' },
+        { name: 'Appointments' },
         { name: 'Media' },
     ],
     paths: {
+        '/api/v1/doctors': {
+            get: {
+                tags: ['Doctors'], summary: 'Browse public doctors',
+                description: 'Active doctor, branch and specialty with an unblocked doctor-role account. No private account fields. Ordered by creation date descending, then ID ascending.',
+                parameters: [...clinicPagination,
+                    { in: 'query', name: 'search', schema: { type: 'string', maxLength: 100 }, description: 'Case-insensitive Arabic or English profile name' },
+                    { in: 'query', name: 'branchId', schema: { type: 'string', format: 'uuid' } },
+                    { in: 'query', name: 'specialtyId', schema: { type: 'string', format: 'uuid' } },
+                    { in: 'query', name: 'isAvailable', schema: { type: 'boolean' } },
+                ], responses: { ...clinicSuccess(clinicCollection('PublicDoctor')), ...validationError },
+            },
+        },
+        '/api/v1/doctors/{id}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Doctors'], summary: 'Get a public doctor profile', responses: {
+                ...clinicSuccess({ type: 'object', required: ['doctor'], properties: { doctor: { $ref: '#/components/schemas/PublicDoctor' } } }),
+                '404': clinicErrors['404'], ...validationError,
+            } },
+        },
+        '/api/v1/doctors/{id}/availability': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: {
+                tags: ['Doctors'], summary: 'Get available appointment slots',
+                description: 'Inclusive branch-local dates: today through today + 90 days, maximum 31 dates per request. Past starts, partial slots, non-cancelled bookings, ambiguous/nonexistent local boundaries and clock-transition crossings are omitted. Unavailable doctors return empty slot arrays. Availability is advisory and is rechecked when booking.',
+                parameters: ['from', 'to'].map(name => ({ in: 'query', name, required: true, schema: { type: 'string', format: 'date' } })),
+                responses: { ...clinicSuccess({ $ref: '#/components/schemas/Availability' }), '404': clinicErrors['404'], ...validationError },
+            },
+        },
+        '/api/v1/appointments': {
+            post: {
+                tags: ['Appointments'], security: secured, summary: 'Book an automatically confirmed appointment',
+                description: 'Customer only. The timestamp must include Z or a numeric offset and exactly match a generated future slot within 90 branch-local days. Snapshots and customer identity come from the service. No minimum notice, buffers, holds or idempotency keys; duplicates conflict. Both doctor and customer overlaps are prohibited.',
+                requestBody: jsonRequest({ type: 'object', additionalProperties: false, required: ['doctorId', 'startsAt'], properties: {
+                    doctorId: { type: 'string', format: 'uuid' }, startsAt: { type: 'string', format: 'date-time', example: '2026-11-01T09:00:00+02:00' },
+                } }),
+                responses: { ...clinicSuccess({ type: 'object', required: ['appointment'], properties: { appointment: { $ref: '#/components/schemas/Appointment' } } }, '201'), ...clinicErrors },
+            },
+            get: {
+                tags: ['Appointments'], security: secured, summary: 'List own appointments',
+                description: 'Customer only. Ordered by start descending, then ID ascending. Empty collections return 200.',
+                parameters: [...clinicPagination,
+                    { in: 'query', name: 'doctorId', schema: { type: 'string', format: 'uuid' } },
+                    { in: 'query', name: 'status', schema: { type: 'string', enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'] } },
+                ], responses: { ...clinicSuccess(clinicCollection('Appointment')), '401': clinicErrors['401'], '403': clinicErrors['403'], ...validationError },
+            },
+        },
+        '/api/v1/appointments/{id}': {
+            parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string', format: 'uuid' } }],
+            get: { tags: ['Appointments'], security: secured, summary: 'Get own appointment', description: 'Another customer’s appointment returns 404.',
+                responses: { ...clinicSuccess({ type: 'object', required: ['appointment'], properties: { appointment: { $ref: '#/components/schemas/Appointment' } } }),
+                    '401': clinicErrors['401'], '403': clinicErrors['403'], '404': clinicErrors['404'], ...validationError },
+            },
+        },
         '/': {
             get: {
                 tags: ['Metadata'],
@@ -482,6 +557,44 @@ export const openapiDocument = {
             bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         },
         schemas: {
+            PublicDoctor: {
+                type: 'object', additionalProperties: false,
+                required: ['id', 'name', 'biography', 'appointmentPrice', 'currency', 'appointmentDurationMinutes', 'isAvailable', 'branch', 'specialty'],
+                properties: {
+                    id: { type: 'string', format: 'uuid' }, name: { $ref: '#/components/schemas/LocalizedText' },
+                    biography: { nullable: true, allOf: [{ $ref: '#/components/schemas/LocalizedText' }] },
+                    appointmentPrice: { type: 'string', example: '125.50' }, currency: { type: 'string', example: 'EGP' },
+                    appointmentDurationMinutes: { type: 'integer', minimum: 1 }, isAvailable: { type: 'boolean' },
+                    branch: { type: 'object', additionalProperties: false, required: ['id', 'name', 'address', 'timezone'], properties: {
+                        id: { type: 'string', format: 'uuid' }, name: { $ref: '#/components/schemas/LocalizedText' },
+                        address: { $ref: '#/components/schemas/LocalizedText' }, timezone: { type: 'string', example: 'Africa/Cairo' },
+                    } },
+                    specialty: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: {
+                        id: { type: 'string', format: 'uuid' }, name: { $ref: '#/components/schemas/LocalizedText' },
+                    } },
+                },
+            },
+            Availability: {
+                type: 'object', required: ['timezone', 'durationMinutes', 'days'], properties: {
+                    timezone: { type: 'string' }, durationMinutes: { type: 'integer' },
+                    days: { type: 'array', items: { type: 'object', required: ['date', 'slots'], properties: {
+                        date: { type: 'string', format: 'date' }, slots: { type: 'array', items: {
+                            type: 'object', required: ['startsAt', 'endsAt'], properties: {
+                                startsAt: { type: 'string', format: 'date-time' }, endsAt: { type: 'string', format: 'date-time' },
+                            },
+                        } },
+                    } } },
+                },
+            },
+            Appointment: {
+                type: 'object', required: ['id', 'customerId', 'doctorId', 'branchId', 'startsAt', 'endsAt', 'timezone', 'durationMinutes', 'bookedPrice', 'currency', 'status', 'createdAt', 'updatedAt'],
+                properties: {
+                    ...Object.fromEntries(['id', 'customerId', 'doctorId', 'branchId'].map(key => [key, { type: 'string', format: 'uuid' }])),
+                    ...Object.fromEntries(['startsAt', 'endsAt', 'createdAt', 'updatedAt'].map(key => [key, { type: 'string', format: 'date-time' }])),
+                    timezone: { type: 'string' }, durationMinutes: { type: 'integer' }, bookedPrice: { type: 'string', example: '125.50' },
+                    currency: { type: 'string', example: 'EGP' }, status: { type: 'string', enum: ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'] },
+                },
+            },
             LocalizedText: {
                 type: 'object', required: ['ar', 'en'], additionalProperties: false,
                 properties: { ar: { type: 'string', minLength: 1 }, en: { type: 'string', minLength: 1 } },

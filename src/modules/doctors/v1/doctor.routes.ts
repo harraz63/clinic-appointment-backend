@@ -2,6 +2,8 @@ import express from 'express';
 import { Roles } from '../../../constants/roles.js';
 import { auth, authorizeRoles } from '../../../middleware/authorization.middleware.js';
 import { validateRequest } from '../../../middleware/validation.middleware.js';
+import { browseDoctors, doctorAvailability, publicDoctorDetail } from '../../appointments/v1/appointment.controller.js';
+import { appointmentIdSchema, availabilitySchema, publicDoctorListSchema, requestSourceGuard } from '../../appointments/v1/appointment.validation.js';
 import {
     createDoctorController,
     deleteDoctorController,
@@ -18,6 +20,10 @@ import {
 } from '../../doctor-schedules/v1/doctor-schedule.validation.js';
 
 export const adminDoctorRouterV1 = express.Router();
+export const publicDoctorRouterV1 = express.Router();
+publicDoctorRouterV1.get('/', requestSourceGuard, validateRequest(publicDoctorListSchema), browseDoctors);
+publicDoctorRouterV1.get('/:id/availability', requestSourceGuard, validateRequest(availabilitySchema), doctorAvailability);
+publicDoctorRouterV1.get('/:id', requestSourceGuard, validateRequest(appointmentIdSchema), publicDoctorDetail);
 adminDoctorRouterV1.use(auth, authorizeRoles(Roles.ADMIN));
 adminDoctorRouterV1.post('/', validateRequest(createDoctorSchema), createDoctorController);
 adminDoctorRouterV1.get('/', validateRequest(adminDoctorListSchema), listDoctorsController);

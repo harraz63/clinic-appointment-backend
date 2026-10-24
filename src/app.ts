@@ -15,7 +15,8 @@ import { authRouterV1 } from './modules/auth/v1/auth.routes.js';
 import { mediaRouterV1 } from './modules/media/v1/media.routes.js';
 import { adminBranchRouterV1, publicBranchRouterV1 } from './modules/branches/v1/branch.routes.js';
 import { adminSpecialtyRouterV1, publicSpecialtyRouterV1 } from './modules/specialties/v1/specialty.routes.js';
-import { adminDoctorRouterV1 } from './modules/doctors/v1/doctor.routes.js';
+import { adminDoctorRouterV1, publicDoctorRouterV1 } from './modules/doctors/v1/doctor.routes.js';
+import { appointmentRouterV1 } from './modules/appointments/v1/appointment.routes.js';
 import { docsRouter } from './modules/docs/docs.routes.js';
 
 import { errorMiddleware } from './middleware/error.middleware.js';
@@ -48,6 +49,8 @@ export function initializeApp(app: express.Application) {
     app.use('/api/v1/admin/branches', adminBranchRouterV1);
     app.use('/api/v1/admin/specialties', adminSpecialtyRouterV1);
     app.use('/api/v1/admin/doctors', adminDoctorRouterV1);
+    app.use('/api/v1/doctors', publicDoctorRouterV1);
+    app.use('/api/v1/appointments', appointmentRouterV1);
 
     app.use(notFoundMiddleware);
     app.use(errorMiddleware);

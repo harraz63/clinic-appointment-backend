@@ -2,7 +2,7 @@
 
 ## Purpose and implementation boundary
 
-This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Admin branch/specialty catalog CRUD, public active browsing, admin doctor account/profile management, and admin schedule management are implemented; public doctor browsing, availability, booking, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
+This document records the implemented backend foundation for one clinic organization with multiple branches. Versioned clinic modules provide models, migrations, input types, validation patterns, bilingual content, and ownership helpers. Admin branch/specialty catalog CRUD, public active browsing, admin doctor account/profile management, admin schedule management, public doctor browsing, availability and confirmed customer booking/history are implemented; lifecycle actions, payment processing, inbox delivery, and dashboard queries remain unimplemented. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for the model and roadmap.
 
 The package is clinic-appointment-backend version 1.0.0. The runtime remains Express 4, TypeScript with native ESM/NodeNext and strict:false, Sequelize 6, and PostgreSQL. Docker targets Node.js 20, PostgreSQL 16, and Redis 7.
 
@@ -53,6 +53,8 @@ Some current handlers directly access models, and media routes have no authentic
 | `/api/v1/admin/branches`, `/api/v1/admin/specialties` | Catalog CRUD and filtered pagination | Authenticated `admin` |
 | `/api/v1/admin/doctors` | Doctor account/profile provisioning and admin profile CRUD with filtered pagination | Authenticated `admin` |
 | `/api/v1/admin/doctors/:id/schedules`, `/api/v1/admin/doctors/:id/schedule-exceptions` | Per-doctor weekly hours and dated overrides in branch-local time | Authenticated `admin` |
+| `/api/v1/doctors`, `/api/v1/doctors/:id`, `/api/v1/doctors/:id/availability` | Safe public doctor profiles and date-grouped UTC slots | Public |
+| `/api/v1/appointments`, `/api/v1/appointments/:id` | Confirmed booking and own history/detail | Authenticated `customer` |
 | `/api/v1/media` | Upload, bytes, and metadata retrieval | Public |
 
 Versioned modules live in `src/modules/<domain>/v1`; constants are an unversioned exception. See [README.md](./README.md) for individual endpoints.
@@ -70,9 +72,13 @@ Joi validation merges body, params, and query in that order, so later values win
 
 The registered `001-initial-schema` migration creates `pgcrypto` and the three application tables. Models use UUIDs; a legacy helper named `JoiCustomValidateObjectId` actually validates UUIDs. The migration runner applies pending entries from its explicit registry and rolls back the last applied entry. Migration operations are not automatically transactional. The initial rollback drops media, sessions, and users, then the role/media enum types.
 
-Migration 004 renames `users.provider` to `users.phone`; historical migrations remain unchanged. The seed looks up `SUPER_ADMIN_PHONE`. If absent, it creates a verified, unblocked `admin`. If present, it overwrites that account's password using `SUPER_ADMIN_PASSWORD` and the password hash hook, but does not correct its role or flags. Every Docker app start executes this seed, including production.
+Migration 004 renames `users.provider` to `users.phone`; historical migrations remain unchanged. Migration 005 transactionally installs `btree_gist` and doctor/customer non-overlap constraints for non-cancelled half-open UTC intervals. Existing conflicts fail preflight without altering appointments; rollback removes constraints and retains data and the extension. Apply it before deploying booking routes.
+
+The seed looks up `SUPER_ADMIN_PHONE`. If absent, it creates a verified, unblocked `admin`. If present, it overwrites that account's password using `SUPER_ADMIN_PASSWORD` and the password hash hook, but does not correct its role or flags. Every Docker app start executes this seed, including production.
 
 ## Authentication and sessions
+
+Public doctor projections exclude account identity/contact and administrative fields. Eligibility requires active doctor/branch/specialty and an unblocked doctor-role account. Availability uses `@js-temporal/polyfill`, branch-local exceptions/weekly hours and the current duration. It returns up to 31 inclusive dates within today through +90 days, omitting uncertain boundaries, clock-transition crossings, past starts and non-cancelled bookings. Booking locks customer, doctor and related eligibility records, revalidates exact slots and customer conflicts, and explicitly writes confirmed status and booked snapshots. Customer appointment list/detail queries constrain ownership in the database; other customers' records return 404. Schedule changes retain existing appointments. Lifecycle actions remain future work.
 
 The clinic roles are admin, doctor, and customer. Roles.USER is a compatibility constant whose public value is customer. User administration is admin-only. Clinic ownership helpers permit only assigned-doctor or owning-customer access and define initial action permissions; no clinic routes invoke them yet.
 
@@ -102,7 +108,7 @@ Database hostname fallback still only rewrites db to localhost outside Docker. S
 
 Original checks failed with six source lint errors plus generated-output errors, missing Firebase credentials, and a placeholder npm test. The foundation removes those build blockers, excludes dist from linting, and adds Node/tsx unit and Docker integration suites. See README commands and CLINIC_FOUNDATION verification notes for actual results.
 
-Remaining limitations include public media, no production upload volume, seed password resets on every Docker startup, no graceful shutdown, in-memory rate limiting, no booking concurrency controls, and no CI/deployment workflow. Password changes revoke all sessions and refresh rotation is serialized per session.
+Remaining limitations include public media, no production upload volume, seed password resets on every Docker startup, no graceful shutdown, in-memory rate limiting, and no CI/deployment workflow. Password changes revoke all sessions and refresh rotation is serialized per session.
 
 Follow [AGENTS.md](./AGENTS.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md); setup and command details are in [README.md](./README.md).
 
@@ -110,7 +116,7 @@ Follow [AGENTS.md](./AGENTS.md) and [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md); 
 
 Migration 002 transactionally converts user to customer, retains admins, rejects unrelated legacy account roles, replaces the enum, widens refresh tokens to TEXT, and removes fcmToken. Rollback rejects doctor accounts or oversized refresh tokens, restores legacy roles, narrows token storage, and restores an empty nullable FCM column. Migration 003 transactionally creates branches, specialties, doctors, doctor_schedules, schedule_exceptions, appointments, payment_methods, payment_records, and notifications, with a bilingual cash method. Its rollback deletes these domain tables and data.
 
-Doctor profiles have one user, one branch, and one specialty. Admin doctor provisioning transactionally creates a verified doctor-role user and profile, requires active branch/specialty assignments, and preserves account/profile role consistency through the generic user APIs. Doctor list/detail responses include user, branch, and specialty while excluding password fields. Profile deletion deactivates rather than removes the account or historical records. Admins atomically replace each doctor's weekly hours and dated days off or replacement intervals; overlaps are rejected per doctor, and saved schedules block branch reassignment until cleared. Appointments reference customer accounts, doctors, and their booked branch, with independent status and price/currency/duration/timezone snapshots. Schedule intervals are branch-local; appointment instants use PostgreSQL timezone-aware timestamps. Inbox notifications reference recipients. Associations initialize centrally without synchronization. JSONB bilingual content, DECIMAL money, foreign keys, indexes, and basic checks are prepared; availability and booking workflows remain absent.
+Doctor profiles have one user, one branch, and one specialty. Admin doctor provisioning transactionally creates a verified doctor-role user and profile, requires active branch/specialty assignments, and preserves account/profile role consistency through the generic user APIs. Doctor list/detail responses include user, branch, and specialty while excluding password fields. Profile deletion deactivates rather than removes the account or historical records. Admins atomically replace each doctor's weekly hours and dated days off or replacement intervals; overlaps are rejected per doctor, and saved schedules block branch reassignment until cleared. Appointments reference customer accounts, doctors, and their booked branch, with independent status and price/currency/duration/timezone snapshots. Schedule intervals are branch-local; appointment instants use PostgreSQL timezone-aware timestamps. Inbox notifications reference recipients. Associations initialize centrally without synchronization. JSONB bilingual content, DECIMAL money, foreign keys, indexes, and basic checks are prepared; availability and transactional confirmed booking/history are implemented. Migration 005 uses btree_gist exclusion constraints on non-cancelled doctor/customer UTC ranges.
 
 ## Migration CLI safeguards
 

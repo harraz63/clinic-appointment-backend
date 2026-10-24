@@ -120,5 +120,12 @@
     "value is not a valid option": "value is not a valid option",
     "Wasel not found": "Wasel not found",
     "Your password reset code is": "Your password reset code is",
-    "Your verification code is": "Your verification code is"
+    "Your verification code is": "Your verification code is",
+    "Invalid availability date range": "Invalid availability date range",
+    "Invalid booking request": "Invalid booking request",
+    "Doctor is unavailable for booking": "Doctor is unavailable for booking",
+    "Appointment slot is no longer available": "Appointment slot is no longer available",
+    "Customer has an overlapping appointment": "Customer has an overlapping appointment",
+    "Appointment overlaps an existing booking": "Appointment overlaps an existing booking",
+    "Appointment not found": "Appointment not found"
 }

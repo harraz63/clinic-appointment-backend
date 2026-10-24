@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 import { once } from 'node:events';
 import express from 'express';
+import { Temporal } from '@js-temporal/polyfill';
 
 // Always creates its own loopback-only disposable database; never uses the local .env DB_URI.
 test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }, async t => {
@@ -59,7 +60,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         for (let i = 0; i < 2; i++) execFileSync(process.execPath,
             ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', 'up'], { env: process.env, stdio: 'pipe' });
         const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta" ORDER BY name');
-        assert.equal(rows.length, 4);
+        assert.equal(rows.length, 5);
         const userColumns = await qi.describeTable('users');
         assert.equal('phone' in userColumns, true);
         assert.equal('provider' in userColumns, false);
@@ -89,7 +90,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
             }
             assert.deepEqual(await qi.showAllTables(), before);
             const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta"');
-            assert.equal(rows.length, 5);
+            assert.equal(rows.length, 6);
         } finally {
             await sequelize.query('DELETE FROM "SequelizeMeta" WHERE name = :name', { replacements: { name: marker } });
         }
@@ -151,6 +152,9 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal(openapi.body.openapi, '3.0.3');
         assert.ok(openapi.body.components.schemas.Success);
         assert.ok(openapi.body.paths['/api/v1/branches'].get);
+        assert.ok(openapi.body.paths['/api/v1/doctors/{id}/availability'].get);
+        assert.ok(openapi.body.paths['/api/v1/appointments'].post);
+        assert.ok(openapi.body.components.schemas.Appointment);
         assert.ok(openapi.body.paths['/api/v1/admin/specialties/{id}'].delete);
         const registration = { phone: '01012345678', name: 'Test Patient', password: 'TestOnly#123' };
         const invalid = await request('/api/v1/auth/register', 'POST', { ...registration, role: 'doctor' });
@@ -396,6 +400,191 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         assert.equal((await request('/api/v1/admin/specialties/' + secondSpecialty.id, 'GET', undefined, adminToken)).status, 404);
     });
 
+    await t.test('public browsing, availability and atomic customer booking', async t => {
+        const { BranchModel } = await import('../../src/modules/branches/v1/model/branch.model.js');
+        const { SpecialtyModel } = await import('../../src/modules/specialties/v1/model/specialty.model.js');
+        const { AppointmentModel } = await import('../../src/modules/appointments/v1/model/appointment.model.js');
+        const { DoctorService } = await import('../../src/modules/doctors/v1/doctor.service.js');
+        const { DoctorScheduleService } = await import('../../src/modules/doctor-schedules/v1/doctor-schedule.service.js');
+        const overlapMigration = await import('../../src/database/migrations/005-appointment-overlap-protection.js');
+        const text = { en: 'Booking Clinic', ar: 'عيادة الحجز' };
+        const branch = await BranchModel.create({ name: text, address: text, timezone: 'Africa/Cairo' });
+        const specialty = await SpecialtyModel.create({ name: text });
+        const doctors = [];
+        for (let index = 0; index < 3; index++) {
+            doctors.push(await DoctorService.create({
+                phone: '0123456700' + index, accountName: 'Booking Doctor ' + index, password: 'TestOnly#123',
+                branchId: branch.id, specialtyId: specialty.id, name: { en: 'Booking Doctor ' + index, ar: 'طبيب الحجز ' + index },
+                appointmentPrice: '125.50', appointmentDurationMinutes: 30,
+            }));
+        }
+        const customers = [];
+        const tokens: string[] = [];
+        for (let index = 0; index < 3; index++) {
+            const user = await UserModel.create({ phone: '+20103456700' + index, name: 'Booking Customer ' + index,
+                password: 'TestOnly#123', role: Roles.USER, isVerified: true, isBlocked: false });
+            customers.push(user);
+            const login = await request('/api/v1/auth/login', 'POST', { phone: user.phone, password: 'TestOnly#123' });
+            tokens.push(login.body.data.accessToken.token);
+        }
+        const tomorrow = Temporal.Now.zonedDateTimeISO(branch.timezone).toPlainDate().add({ days: 1 });
+        const date = tomorrow.toString();
+        for (const doctor of doctors) await DoctorScheduleService.replaceWeekly(doctor.id, [{ weekday: tomorrow.dayOfWeek % 7, startTime: '09:00', endTime: '16:00' }]);
+        const availabilityPath = (id: string, from = date, to = date) => `/api/v1/doctors/${id}/availability?from=${from}&to=${to}`;
+        const initial = await request(availabilityPath(doctors[0].id));
+        assert.equal(initial.status, 200);
+        const slots = initial.body.data.days[0].slots as { startsAt: string; endsAt: string }[];
+        assert.equal(slots.length, 14);
+        let bookedId: string;
+
+        await t.test('public projections, search, eligibility and strict request sources', async () => {
+            const browse = await request(`/api/v1/doctors?branchId=${branch.id}&specialtyId=${specialty.id}&search=Booking&page=1&limit=2`);
+            assert.equal(browse.status, 200);
+            assert.equal(browse.body.data.total, 3);
+            assert.equal(browse.body.data.items.length, 2);
+            const detail = (await request('/api/v1/doctors/' + doctors[0].id)).body.data.doctor;
+            assert.equal(detail.name.ar, 'طبيب الحجز 0');
+            assert.equal(detail.appointmentPrice, '125.50');
+            for (const key of ['user', 'userId', 'phone', 'password', 'isBlocked', 'isVerified']) assert.equal(key in detail, false);
+            assert.equal((await request('/api/v1/doctors?search=' + encodeURIComponent('طبيب الحجز'))).body.data.total, 3);
+            await doctors[0].update({ isAvailable: false });
+            assert.equal((await request('/api/v1/doctors/' + doctors[0].id)).status, 200);
+            assert.deepEqual((await request(availabilityPath(doctors[0].id))).body.data.days[0].slots, []);
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[0].startsAt }, tokens[0])).status, 409);
+            assert.equal((await request(`/api/v1/doctors?branchId=${branch.id}&isAvailable=FALSE`)).body.data.total, 1);
+            await doctors[0].update({ isAvailable: true });
+            for (const [model, changes] of [[branch, { isActive: false }], [specialty, { isActive: false }], [doctors[0], { isActive: false }], [doctors[0].user, { isBlocked: true }]] as const) {
+                await model.update(changes);
+                assert.equal((await request('/api/v1/doctors/' + doctors[0].id)).status, 404);
+                assert.equal((await request(availabilityPath(doctors[0].id))).status, 404);
+                assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[0].startsAt }, tokens[0])).status, 409);
+                await model.update('isBlocked' in changes ? { isBlocked: false } : { isActive: true });
+            }
+            await UserModel.update({ role: Roles.USER }, { where: { id: doctors[0].userId } });
+            assert.equal((await request('/api/v1/doctors/' + doctors[0].id)).status, 404);
+            await UserModel.update({ role: Roles.DOCTOR }, { where: { id: doctors[0].userId } });
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[0].startsAt })).status, 401);
+            const adminLogin = await request('/api/v1/auth/login', 'POST', { phone: '01112345678', password: 'TestOnly#123' });
+            assert.equal((await request('/api/v1/appointments', 'GET', undefined, adminLogin.body.data.accessToken.token)).status, 403);
+            const doctorLogin = await request('/api/v1/auth/login', 'POST', { phone: doctors[0].user.phone, password: 'TestOnly#123' });
+            assert.equal((await request('/api/v1/appointments', 'GET', undefined, doctorLogin.body.data.accessToken.token)).status, 403);
+            for (const field of ['customerId', 'status', 'branchId', 'bookedPrice', 'currency', 'durationMinutes', 'endsAt']) {
+                assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[0].startsAt, [field]: 'injected' }, tokens[0])).status, 422);
+            }
+            assert.equal((await request(`/api/v1/appointments?doctorId=${doctors[0].id}`, 'POST', { startsAt: slots[0].startsAt }, tokens[0])).status, 422);
+            assert.equal((await request(availabilityPath(doctors[0].id) + '&id=' + doctors[1].id)).status, 422);
+            assert.equal((await request(availabilityPath(doctors[0].id, tomorrow.add({ days: 89 }).toString(), tomorrow.add({ days: 89 }).toString()))).status, 200);
+            assert.equal((await request(availabilityPath(doctors[0].id, date, tomorrow.add({ days: 31 }).toString()))).status, 422);
+            assert.equal((await request(availabilityPath(doctors[0].id, tomorrow.add({ days: 91 }).toString(), tomorrow.add({ days: 91 }).toString()))).status, 422);
+            assert.equal((await request(availabilityPath(doctors[0].id, tomorrow.subtract({ days: 2 }).toString()))).status, 422);
+            assert.equal((await request(availabilityPath(doctors[0].id, '2026-02-30'))).status, 422);
+            assert.equal((await request('/api/v1/doctors/' + doctors[0].id + '/availability?from=' + date)).status, 422);
+        });
+
+        await t.test('doctor and customer booking races each permit exactly one winner', async () => {
+            const doctorRace = await Promise.all(tokens.slice(0, 2).map(token => request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[0].startsAt }, token)));
+            assert.deepEqual(doctorRace.map(row => row.status).sort(), [201, 409]);
+            const booked = doctorRace.find(row => row.status === 201).body.data.appointment;
+            bookedId = booked.id;
+            assert.equal(booked.status, 'confirmed');
+            assert.equal(booked.bookedPrice, '125.50');
+            assert.equal(booked.currency, 'EGP');
+            assert.equal(booked.timezone, branch.timezone);
+            assert.equal(booked.branchId, branch.id);
+            assert.equal(booked.durationMinutes, 30);
+            assert.equal(booked.endsAt, slots[0].endsAt);
+            const customerRace = await Promise.all(doctors.slice(1).map(doctor => request('/api/v1/appointments', 'POST', { doctorId: doctor.id, startsAt: slots[2].startsAt }, tokens[2])));
+            assert.deepEqual(customerRace.map(row => row.status).sort(), [201, 409]);
+            const independent = await Promise.all([
+                request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[4].startsAt }, tokens[0]),
+                request('/api/v1/appointments', 'POST', { doctorId: doctors[1].id, startsAt: slots[4].startsAt }, tokens[1]),
+            ]);
+            assert.deepEqual(independent.map(row => row.status), [201, 201]);
+            // Adjacent times are valid for both the doctor and the same customer.
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[5].startsAt }, tokens[0])).status, 201);
+            const busy = (await request(availabilityPath(doctors[0].id))).body.data.days[0].slots;
+            assert.equal(busy.some(slot => slot.startsAt === slots[0].startsAt), false);
+        });
+
+        await t.test('ownership, filters, stale slots, explicit offsets and localized failures', async () => {
+            const booked = await AppointmentModel.findByPk(bookedId);
+            const owner = customers.findIndex(customer => customer.id === booked.customerId);
+            const other = owner === 0 ? 1 : 0;
+            assert.equal((await request('/api/v1/appointments/' + bookedId, 'GET', undefined, tokens[owner])).status, 200);
+            assert.equal((await request('/api/v1/appointments/' + bookedId, 'GET', undefined, tokens[other])).status, 404);
+            assert.equal((await request('/api/v1/appointments/' + bookedId + '?id=' + randomUUID(), 'GET', undefined, tokens[owner])).status, 422);
+            const history = await request(`/api/v1/appointments?doctorId=${doctors[0].id}&status=confirmed&limit=1`, 'GET', undefined, tokens[owner]);
+            assert.equal(history.body.data.items.length, 1);
+            assert.ok(history.body.data.items.every(row => row.customerId === booked.customerId));
+            assert.equal(history.body.data.limit, 1);
+            const duplicateBody = { doctorId: doctors[0].id, startsAt: slots[0].startsAt };
+            assert.equal((await request('/api/v1/appointments', 'POST', duplicateBody, tokens[owner])).status, 409);
+            const arabic = await fetch(base + '/api/v1/appointments', { method: 'POST', headers: {
+                'Content-Type': 'application/json', 'Accept-Language': 'ar', Authorization: 'Bearer ' + tokens[owner],
+            }, body: JSON.stringify(duplicateBody) });
+            assert.equal(arabic.status, 409);
+            assert.match((await arabic.json()).message, /[\u0600-\u06ff]/);
+            const invalidArabic = await fetch(base + '/api/v1/appointments', { method: 'POST', headers: {
+                'Content-Type': 'application/json', 'Accept-Language': 'ar', Authorization: 'Bearer ' + tokens[owner],
+            }, body: JSON.stringify({ doctorId: 'invalid' }) });
+            assert.equal(invalidArabic.status, 422);
+            assert.match((await invalidArabic.json()).message, /[\u0600-\u06ff]/);
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[7].startsAt.slice(0, -1) }, tokens[0])).status, 422);
+            const offset = Temporal.Instant.from(slots[7].startsAt).toZonedDateTimeISO(branch.timezone).toString({ timeZoneName: 'never' });
+            const offsetBooking = await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: offset }, tokens[0]);
+            assert.equal(offsetBooking.status, 201);
+            assert.equal(offsetBooking.body.data.appointment.startsAt, slots[7].startsAt);
+            const offGrid = new Date(new Date(slots[8].startsAt).getTime() + 60000).toISOString();
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: offGrid }, tokens[0])).status, 409);
+            await DoctorScheduleService.setException(doctors[0].id, date, { isDayOff: true });
+            assert.deepEqual((await request(availabilityPath(doctors[0].id))).body.data.days[0].slots, []);
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[0].id, startsAt: slots[8].startsAt }, tokens[0])).status, 409);
+            await DoctorScheduleService.deleteException(doctors[0].id, date);
+            await DoctorScheduleService.setException(doctors[0].id, date, { isDayOff: false, intervals: [{ startTime: '17:00', endTime: '18:00' }] });
+            const replacement = (await request(availabilityPath(doctors[0].id))).body.data.days[0].slots;
+            assert.equal(replacement.length, 2);
+            assert.equal(Temporal.Instant.from(replacement[0].startsAt).toZonedDateTimeISO(branch.timezone).hour, 17);
+            await DoctorScheduleService.deleteException(doctors[0].id, date);
+        });
+
+        await t.test('database constraints cover direct writes, cancelled rows, preflight and safe rollback', async () => {
+            const booked = await AppointmentModel.findByPk(bookedId);
+            const input = { customerId: customers[2].id, doctorId: booked.doctorId, branchId: branch.id,
+                startsAt: booked.startsAt, endsAt: booked.endsAt, timezone: branch.timezone, durationMinutes: 30, bookedPrice: '125.50', currency: 'EGP', status: 'confirmed' };
+            await assert.rejects(() => AppointmentModel.create(input), /conflict|exclusion/i);
+            const partial = { ...input, startsAt: new Date(input.startsAt.getTime() + 15 * 60000), endsAt: new Date(input.endsAt.getTime() + 15 * 60000) };
+            await assert.rejects(() => AppointmentModel.create(partial), /conflict|exclusion/i);
+            await assert.rejects(() => AppointmentModel.create({ ...input, doctorId: doctors[2].id, customerId: booked.customerId }), /conflict|exclusion/i);
+            await assert.rejects(() => AppointmentModel.create({ ...partial, doctorId: doctors[2].id, customerId: booked.customerId }), /conflict|exclusion/i);
+            const cancelled = await AppointmentModel.create({ ...input, status: 'cancelled' });
+            await cancelled.destroy();
+            const released = await request('/api/v1/appointments', 'POST', { doctorId: doctors[2].id, startsAt: slots[10].startsAt }, tokens[0]);
+            assert.equal(released.status, 201);
+            await AppointmentModel.update({ status: 'cancelled' }, { where: { id: released.body.data.appointment.id } });
+            assert.ok((await request(availabilityPath(doctors[2].id))).body.data.days[0].slots.some(slot => slot.startsAt === slots[10].startsAt));
+            assert.equal((await request('/api/v1/appointments', 'POST', { doctorId: doctors[2].id, startsAt: slots[10].startsAt }, tokens[0])).status, 201);
+            const count = await AppointmentModel.count();
+            await overlapMigration.down(qi, sequelize);
+            assert.equal(await AppointmentModel.count(), count);
+            const conflicting = await AppointmentModel.create(input);
+            await assert.rejects(() => overlapMigration.up(qi, sequelize), /Resolve doctor\/customer conflicts explicitly/);
+            assert.equal(await AppointmentModel.count(), count + 1);
+            await conflicting.destroy();
+            await overlapMigration.up(qi, sequelize);
+            await assert.rejects(() => AppointmentModel.create(input), /conflict|exclusion/i);
+        });
+
+        await t.test('booked snapshots survive schedule, price, duration, timezone and branch changes', async () => {
+            const before = (await AppointmentModel.findByPk(bookedId)).toJSON();
+            await DoctorScheduleService.replaceWeekly(doctors[0].id, []);
+            const otherBranch = await BranchModel.create({ name: text, address: text, timezone: 'UTC' });
+            await DoctorService.update(doctors[0].id, { branchId: otherBranch.id, appointmentPrice: '300.00', currency: 'USD', appointmentDurationMinutes: 45 });
+            await branch.update({ timezone: 'America/New_York' });
+            const after = (await AppointmentModel.findByPk(bookedId)).toJSON();
+            for (const field of ['branchId', 'timezone', 'durationMinutes', 'bookedPrice', 'currency', 'startsAt', 'endsAt']) assert.deepEqual(after[field], before[field]);
+        });
+    });
+
     await t.test('customer can reset password and verify a phone change through returned OTPs', async () => {
         const forgot = await request('/api/v1/auth/forgot-password', 'POST', { phone: '01012345678' });
         const resetOtp = forgot.body.data.otp as string;
@@ -517,6 +706,8 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
             name, appointmentPrice: '-1.00', currency: 'EGP', appointmentDurationMinutes: 0 }));
     });
     await t.test('clinic rollback removes domain tables; doctor accounts block role rollback atomically', async () => {
+        const overlapMigration = await import('../../src/database/migrations/005-appointment-overlap-protection.js');
+        await overlapMigration.down(qi, sequelize);
         await clinic.down(qi, sequelize);
         await assert.rejects(() => qi.describeTable('appointments'));
         await assert.rejects(() => roles.down(qi, sequelize), /doctor accounts/);
