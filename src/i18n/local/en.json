@@ -127,5 +127,7 @@
     "Appointment slot is no longer available": "Appointment slot is no longer available",
     "Customer has an overlapping appointment": "Customer has an overlapping appointment",
     "Appointment overlaps an existing booking": "Appointment overlaps an existing booking",
-    "Appointment not found": "Appointment not found"
+    "Appointment not found": "Appointment not found",
+    "Appointment action is not allowed in its current state or time": "Appointment action is not allowed in its current state or time",
+    "Appointment already uses this slot": "Appointment already uses this slot"
 }

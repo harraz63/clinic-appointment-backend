@@ -127,5 +127,7 @@
     "Appointment slot is no longer available": "هذا الموعد لم يعد متاحاً",
     "Customer has an overlapping appointment": "لديك موعد آخر يتداخل مع هذا الموعد",
     "Appointment overlaps an existing booking": "يتداخل الموعد مع حجز قائم",
-    "Appointment not found": "الموعد غير موجود"
+    "Appointment not found": "الموعد غير موجود",
+    "Appointment action is not allowed in its current state or time": "لا يمكن تنفيذ هذا الإجراء حسب حالة الموعد أو وقته الحالي",
+    "Appointment already uses this slot": "الموعد محجوز بالفعل في هذا الوقت"
 }

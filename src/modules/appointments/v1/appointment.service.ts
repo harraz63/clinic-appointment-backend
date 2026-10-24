@@ -11,10 +11,11 @@ import { UserModel } from '../../user/v1/model/user.model.js';
 import { AppointmentModel } from './model/appointment.model.js';
 import { assertAvailabilityRange, AvailabilityDay, generateSlots } from './availability.js';
 import { BookingInput } from './appointment.types.js';
+import { recordAppointmentHistory } from './appointment-history.js';
 
 export interface AvailabilityResult { timezone: string; durationMinutes: number; days: AvailabilityDay[] }
 
-async function loadAvailability(context: EligibleDoctor, from: string, to: string, now: Date, transaction?: Transaction): Promise<AvailabilityResult> {
+export async function loadAvailability(context: EligibleDoctor, from: string, to: string, now: Date, transaction?: Transaction, excludeId?: string): Promise<AvailabilityResult> {
     const { doctor, branch } = context;
     assertAvailabilityRange(from, to, branch.timezone, now);
     const fromDate = Temporal.PlainDate.from(from);
@@ -25,6 +26,7 @@ async function loadAvailability(context: EligibleDoctor, from: string, to: strin
         DoctorScheduleModel.findAll({ where: { doctorId: doctor.id }, transaction }),
         ScheduleExceptionModel.findAll({ where: { doctorId: doctor.id, date: { [Op.between]: [from, to] } }, transaction }),
         AppointmentModel.findAll({ where: {
+            ...(excludeId ? { id: { [Op.ne]: excludeId } } : {}),
             doctorId: doctor.id, status: { [Op.ne]: 'cancelled' }, startsAt: { [Op.lt]: end }, endsAt: { [Op.gt]: start },
         }, transaction }),
     ]);
@@ -33,7 +35,7 @@ async function loadAvailability(context: EligibleDoctor, from: string, to: strin
     return { timezone: branch.timezone, durationMinutes: doctor.appointmentDurationMinutes, days };
 }
 
-function isExclusionViolation(error: unknown): boolean {
+export function isExclusionViolation(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
     if ('code' in error && error.code === '23P01') return true;
     return 'original' in error && !!error.original && typeof error.original === 'object' &&
@@ -66,12 +68,14 @@ export class AppointmentService {
                     customerId, status: { [Op.ne]: 'cancelled' }, startsAt: { [Op.lt]: endsAt }, endsAt: { [Op.gt]: startsAt },
                 }, transaction });
                 if (conflict) throw new HttpResponseError(409, 'Customer has an overlapping appointment');
-                return AppointmentModel.create({
+                const appointment = await AppointmentModel.create({
                     customerId, doctorId: context.doctor.id, branchId: context.branch.id,
                     startsAt, endsAt, timezone: context.branch.timezone,
                     durationMinutes: context.doctor.appointmentDurationMinutes, bookedPrice: context.doctor.appointmentPrice,
                     currency: context.doctor.currency, status: 'confirmed',
                 }, { transaction });
+                await recordAppointmentHistory(appointment, { id: customerId, role: Roles.USER }, 'booked', null, transaction);
+                return appointment;
             });
         } catch (error) {
             if (isExclusionViolation(error)) throw new HttpResponseError(409, 'Appointment overlaps an existing booking');

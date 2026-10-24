@@ -7,6 +7,7 @@ import { setTimeout } from 'node:timers/promises';
 import { once } from 'node:events';
 import express from 'express';
 import { Temporal } from '@js-temporal/polyfill';
+import { assertDisposableTestTargets } from './target-guard.js';
 
 // Always creates its own loopback-only disposable database; never uses the local .env DB_URI.
 test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }, async t => {
@@ -41,6 +42,9 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     }
     assert.ok(redisReady, 'disposable Redis must become ready');
     const { sequelize } = await import('../../src/database/db-config.js');
+    const { env } = await import('../../src/config/env.js');
+    assertDisposableTestTargets(sequelize.config, env.REDIS_URL,
+        new URL('postgres://postgres@' + binding + '/clinic_tests'), 'redis://' + redisBinding);
     const qi = sequelize.getQueryInterface();
     const roles = await import('../../src/database/migrations/002-clinic-roles.js');
     const clinic = await import('../../src/database/migrations/003-clinic-foundation.js');
@@ -60,7 +64,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         for (let i = 0; i < 2; i++) execFileSync(process.execPath,
             ['--import', 'tsx', 'src/database/migrations/run-migrations.ts', 'up'], { env: process.env, stdio: 'pipe' });
         const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta" ORDER BY name');
-        assert.equal(rows.length, 5);
+        assert.equal(rows.length, 6);
         const userColumns = await qi.describeTable('users');
         assert.equal('phone' in userColumns, true);
         assert.equal('provider' in userColumns, false);
@@ -90,7 +94,7 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
             }
             assert.deepEqual(await qi.showAllTables(), before);
             const [rows] = await sequelize.query('SELECT name FROM "SequelizeMeta"');
-            assert.equal(rows.length, 6);
+            assert.equal(rows.length, 7);
         } finally {
             await sequelize.query('DELETE FROM "SequelizeMeta" WHERE name = :name', { replacements: { name: marker } });
         }
@@ -114,9 +118,9 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
     const address = server.address();
     assert.ok(address && typeof address !== 'string');
     const base = 'http://127.0.0.1:' + address.port;
-    const request = async (url: string, method = 'GET', body?: unknown, token?: string) => {
+    const request = async (url: string, method = 'GET', body?: unknown, token?: string, language = 'en') => {
         const response = await fetch(base + url, { method, headers: {
-            'Content-Type': 'application/json', 'Accept-Language': 'en', ...(token ? { Authorization: 'Bearer ' + token } : {}),
+            'Content-Type': 'application/json', 'Accept-Language': language, ...(token ? { Authorization: 'Bearer ' + token } : {}),
         }, body: body === undefined ? undefined : JSON.stringify(body) });
         return { status: response.status, body: await response.json() };
     };
@@ -705,8 +709,14 @@ test('isolated PostgreSQL migrations and HTTP smoke checks', { timeout: 120000 }
         await assert.rejects(() => DoctorModel.create({ userId: doctorUser.id, branchId: branch.id, specialtyId: specialty.id,
             name, appointmentPrice: '-1.00', currency: 'EGP', appointmentDurationMinutes: 0 }));
     });
+    await t.test('appointment lifecycle and history', async t => {
+        const { exerciseAppointmentLifecycle } = await import('./appointment-lifecycle.js');
+        await exerciseAppointmentLifecycle(t, request, sequelize);
+    });
     await t.test('clinic rollback removes domain tables; doctor accounts block role rollback atomically', async () => {
         const overlapMigration = await import('../../src/database/migrations/005-appointment-overlap-protection.js');
+        const historyMigration = await import('../../src/database/migrations/006-appointment-history.js');
+        await historyMigration.down(qi, sequelize);
         await overlapMigration.down(qi, sequelize);
         await clinic.down(qi, sequelize);
         await assert.rejects(() => qi.describeTable('appointments'));

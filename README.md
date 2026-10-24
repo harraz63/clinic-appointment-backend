@@ -1,6 +1,6 @@
 # Clinic Appointment Backend
 
-Express and TypeScript backend for a clinic appointment project. The repository provides authentication, users, sessions, public media, branch/specialty catalog APIs, admin doctor account/profile management, admin schedules, public doctor browsing, availability, and confirmed customer booking/history. Appointment lifecycle actions, payments, inbox delivery, dashboards, and medical records are not implemented.
+Express and TypeScript backend for a clinic appointment project. The repository provides authentication, users, sessions, public media, branch/specialty catalog APIs, admin doctor account/profile management, admin schedules, public doctor browsing, availability, and confirmed customer booking/history. Appointment cancellation/rescheduling, doctor/admin appointment views and status actions, and audit history are implemented. Payments, inbox delivery, dashboards, and medical records are not implemented.
 
 The npm package is `clinic-appointment-backend` version `1.0.0`. See [CLINIC_FOUNDATION.md](./CLINIC_FOUNDATION.md) for relationships, future APIs, RBAC, bilingual data, and the implementation roadmap.
 
@@ -224,6 +224,14 @@ Paths are relative to the API origin. `Authenticated` means a Bearer access toke
 | POST | `/api/v1/appointments` | Customer | `{ doctorId, startsAt }`; returns `201` with `{ appointment }` and status `confirmed` |
 | GET | `/api/v1/appointments` | Customer | Own history, `doctorId`, `status`, `page`, `limit`; ordered by start descending then ID |
 | GET | `/api/v1/appointments/:id` | Customer | Own appointment snapshots; other customers' appointments return `404` |
+| PATCH | `/api/v1/appointments/:id/cancel` | Customer | Cancel own future pending/confirmed appointment; empty body |
+| PATCH | `/api/v1/appointments/:id/reschedule` | Customer | Move own future pending/confirmed appointment with `{ startsAt }` |
+| GET | `/api/v1/doctor/appointments`, `/api/v1/doctor/appointments/:id` | Doctor | Assigned appointment list/detail |
+| PATCH | `/api/v1/doctor/appointments/:id/status` | Doctor | `{ status: confirmed \| completed \| no_show }` |
+| GET | `/api/v1/admin/appointments`, `/api/v1/admin/appointments/:id` | Admin | All appointment list/detail |
+| PATCH | `/api/v1/admin/appointments/:id/status` | Admin | Doctor statuses plus `cancelled` |
+| PATCH | `/api/v1/admin/appointments/:id/reschedule` | Admin | Reschedule with `{ startsAt }` |
+| GET | `/api/v1/appointments/:id/history`, `/api/v1/doctor/appointments/:id/history`, `/api/v1/admin/appointments/:id/history` | Respective role | Paginated, ownership-scoped audit events; actor account IDs omitted |
 | POST | `/api/v1/media/upload` | Public | Multipart file in field `media` |
 | GET | `/api/v1/media/:id/info` | Public | Media metadata |
 | GET | `/api/v1/media/:id` | Public | Media bytes with stored content type |
@@ -241,7 +249,7 @@ Public doctor profiles require an active doctor, branch and specialty and an unb
 
 Availability requires both dates, inclusively covering at most 31 branch-local dates within today through today + 90 days. It returns `{ timezone, durationMinutes, days: [{ date, slots: [{ startsAt, endsAt }] }] }`. Slots start at each working interval's opening and advance by the current appointment duration. Exceptions replace weekly hours; incomplete trailing slots, past starts, uncertain local boundaries and clock-transition crossings are omitted. All non-cancelled doctor appointments block overlaps. Public availability does not reveal a customer's other bookings.
 
-Booking requires customer authentication and an ISO timestamp with seconds and `Z` or an explicit offset (up to millisecond precision), such as `2026-11-01T09:00:00+02:00`. The service rechecks the exact slot and customer conflicts in one transaction, automatically confirms it, and snapshots branch, timezone, duration, decimal price, currency and UTC times. Client ownership, status and snapshot fields are rejected. No minimum notice beyond a future start, booking buffer, holds or idempotency keys exist; duplicate/stale bookings return localized `409`. Adjacent appointments are allowed. History uses the catalog pagination envelope and supports all existing statuses; lifecycle endpoints remain future work.
+Booking requires customer authentication and an ISO timestamp with seconds and `Z` or an explicit offset (up to millisecond precision), such as `2026-11-01T09:00:00+02:00`. The service rechecks the exact slot and customer conflicts in one transaction, automatically confirms it, and snapshots branch, timezone, duration, decimal price, currency and UTC times. Client ownership, status and snapshot fields are rejected. No minimum notice beyond a future start, booking buffer, holds or idempotency keys exist; duplicate/stale bookings return localized `409`. Adjacent appointments are allowed. History uses the catalog pagination envelope and supports all existing statuses. Lifecycle endpoints follow the policies below.
 
 Apply migration `005-appointment-overlap-protection` with the existing migration command before deploying booking routes. It installs PostgreSQL `btree_gist` (requires database `CREATE` permission or prior installation) and excludes overlapping non-cancelled appointments per doctor and per customer. Existing overlaps stop migration transactionally for explicit resolution; no data is repaired or deleted. Rollback removes only these constraints and retains appointments and the extension. Verify migration behavior using the isolated integration suite, never a shared database or seed.
 
@@ -263,14 +271,14 @@ The health endpoint returns the same error fields with `status: "error"` and `st
 
 ## Migrations and seeding
 
-Migrations are explicitly registered in [src/database/migrations/migrations.ts](./src/database/migrations/migrations.ts) and tracked in `SequelizeMeta`. The unchanged initial migration creates `pgcrypto`, `users`, `user_sessions`, and `media`. Migration 002 converts clinic roles, widens refresh-token storage to TEXT, and removes FCM tokens. Migration 003 creates the clinic domain tables and bilingual cash method. Migration 004 renames the account identity column from `provider` to `phone`. Migration 005 adds doctor/customer overlap protection using `btree_gist`; prior migrations remain unchanged. New migrations use explicit transactions. Schema changes do not use runtime model synchronization. The runner does not automatically wrap migrations in transactions.
+Migrations are explicitly registered in [src/database/migrations/migrations.ts](./src/database/migrations/migrations.ts) and tracked in `SequelizeMeta`. The unchanged initial migration creates `pgcrypto`, `users`, `user_sessions`, and `media`. Migration 002 converts clinic roles, widens refresh-token storage to TEXT, and removes FCM tokens. Migration 003 creates the clinic domain tables and bilingual cash method. Migration 004 renames the account identity column from `provider` to `phone`. Migration 005 adds doctor/customer overlap protection using `btree_gist`. Migration 006 adds appointment audit history; prior migrations remain unchanged. New migrations use explicit transactions. Schema changes do not use runtime model synchronization. The runner does not automatically wrap migrations in transactions.
 
 ```powershell
 npm run migrate
 npm run seed
 ```
 
-Compiled equivalents are `npm run migrate:prod` and `npm run seed:prod`; they require a successful build. Rollback commands undo the last applied registered migration. Rollback first removes migration 005 overlap constraints while retaining appointment data and btree_gist. Further rollbacks undo 004 and then remove migration 003 domain tables and their data. Role rollback refuses doctor accounts and oversized refresh tokens, restores customer to user, narrows token storage, and restores an empty FCM column. Resolve or revoke incompatible sessions explicitly before rollback. Rolling back migration 001 deletes the original application tables and records; it is not a harmless setup check.
+Compiled equivalents are `npm run migrate:prod` and `npm run seed:prod`; they require a successful build. Rollback commands undo the last applied registered migration. Rollback first removes migration 006 audit history while retaining appointments. The next rollback removes migration 005 overlap constraints while retaining appointment data and btree_gist. Further rollbacks undo 004 and then remove migration 003 domain tables and their data. Role rollback refuses doctor accounts and oversized refresh tokens, restores customer to user, narrows token storage, and restores an empty FCM column. Resolve or revoke incompatible sessions explicitly before rollback. Rolling back migration 001 deletes the original application tables and records; it is not a harmless setup check.
 
 Seeding creates a verified, unblocked admin if the configured phone is absent. If the phone exists, it resets that account's password and leaves role/flags unchanged. This applies even when the phone belongs to a non-admin user. Docker executes seeding on every app start.
 
@@ -309,13 +317,13 @@ These APIs provide public media, not protected clinical-document storage. The se
 | `npm run lint` | Runs ESLint |
 | `npm run lint:fix` | Runs ESLint with source rewriting |
 | `npm test` | Runs focused Node test-runner tests through tsx, without database access |
-| `npm run test:integration` | Creates/removes disposable Docker PostgreSQL 16 and Redis 7 containers; tests migrations and OTP HTTP flows without running seed |
+| `npm run test:integration` | Creates/removes disposable Docker PostgreSQL 16 and Redis 7 containers; asserts the selected connection matches its disposable database, then tests migrations, auth and clinic HTTP flows without running seed |
 
 For source/configuration changes, run lint, build, and relevant tests and report actual results. `npx tsc --noEmit` checks TypeScript without emitting output. Validate both Compose files when runtime configuration changes. Do not use migrations or seeding to verify documentation edits.
 
 ## Known limitations
 
-- Doctor administration, schedules, public doctor browsing, availability, customer booking/history and overlap protection are implemented. Appointment lifecycle actions, payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
+- Doctor administration, schedules, public doctor browsing, availability, customer booking/history and overlap protection are implemented. Appointment lifecycle actions, staff views and audit history are implemented. Payment workflows, inbox endpoints, reminders, and dashboard queries remain unimplemented.
 - Google authentication is not implemented. Existing Google-only accounts are preserved but cannot sign in until a password is set. Password changes revoke all sessions; refresh rotation is serialized per session.
 - Joi validates merged body/path/query input but does not apply normalized output. Future services must explicitly handle conversions/defaults. JSON success responses use the shared envelope; binary media downloads and the OpenAPI document retain their native formats.
 - CORS allows localhost ports 3000/3001 including PATCH. Proxy trust remains one hop; rate limits use an in-memory store.
@@ -326,3 +334,13 @@ For source/configuration changes, run lint, build, and relevant tests and report
 ## Repository guidance
 
 Read [AGENTS.md](./AGENTS.md) for repository rules, [AI_INSTRUCTIONS.md](./AI_INSTRUCTIONS.md) for engineering workflow, and [ARCHITECTURE_BASELINE.md](./ARCHITECTURE_BASELINE.md) for the implemented architecture. Update these documents together when executable behavior or setup changes.
+
+## Appointment lifecycle and audit history
+
+Customers cancel or reschedule only their own pending/confirmed appointments strictly before start. Doctors confirm assigned pending appointments before start and complete or mark confirmed appointments no-show at or after start. Admins apply the same rules, with cancellation of pending/confirmed appointments allowed even after start. Completed, cancelled and no-show states are terminal. Repeated/invalid transitions and identical-slot moves return localized 409 errors. Out-of-scope IDs return 404; wrong route roles return 403.
+
+Rescheduling accepts only startsAt, retains appointment ID, doctor, status and original price/currency, and snapshots the current branch, timezone and duration. It rechecks the doctor's eligibility, schedules, exceptions, 90-day horizon and doctor/customer conflicts while excluding itself. Failed moves retain the original slot; cancellation releases it. Customer and doctor locks precede the appointment lock; mutations and audit inserts commit together. Inactive doctor/branch state does not block historical cancellation or completion/no-show actions.
+
+Staff lists accept status, branchId, customerId, from and to; admins additionally accept doctorId. Bounds are offset-bearing timestamps, selecting startsAt >= from and startsAt < to; from must precede to when both are supplied. Lists order by start then ID ascending. Lists and audit history use page=1, limit=10, maximum 100. Audit history orders by event time then ID ascending and exposes only id, action, occurredAt, actorRole, before and after. Both snapshots contain status, UTC times, branch, timezone, duration and decimal price/currency. Booking has a null before snapshot; existing appointments receive no fabricated events. Actor deletion preserves history with a null internal actor reference. There are no history edit/delete endpoints.
+
+PATCH requests reject query parameters, source collisions and unknown body fields. Successful mutations return the existing appointment envelope. Deploy migration 006-appointment-history before the updated booking and lifecycle code; use the existing migration command. Its rollback removes audit history only and preserves appointments. Integration tests must configure disposable services and assert their selected target before loading database-backed helpers or executing queries.

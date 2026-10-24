@@ -12,7 +12,7 @@ const validationMessages = Object.fromEntries([
 export const requestSourceGuard: RequestHandler = (req, _res, next) => {
     const seen = new Set<string>();
     if ((req.method === 'GET' && Object.keys(req.body ?? {}).length) ||
-        (req.method === 'POST' && Object.keys(req.query).length)) {
+        (['POST', 'PATCH'].includes(req.method) && Object.keys(req.query).length)) {
         throw new HttpResponseError(422, 'Invalid booking request');
     }
     for (const source of [req.params, req.body, req.query]) {
@@ -51,3 +51,25 @@ export const publicDoctorListSchema = Joi.object({
     branchId: Joi.string().uuid().optional(), specialtyId: Joi.string().uuid().optional(),
     isAvailable: Joi.boolean().optional(),
 }).unknown(false).messages(validationMessages);
+
+export const appointmentHistorySchema = appointmentIdSchema.concat(Joi.object(paginationFields)).messages(validationMessages);
+export const rescheduleSchema = appointmentIdSchema.concat(Joi.object({ startsAt: bookingSchema.extract('startsAt') })).messages(validationMessages);
+export const doctorStatusSchema = appointmentIdSchema.concat(Joi.object({
+    status: Joi.string().valid('confirmed', 'completed', 'no_show').required(),
+})).messages(validationMessages);
+export const adminStatusSchema = appointmentIdSchema.concat(Joi.object({
+    status: Joi.string().valid('confirmed', 'completed', 'no_show', 'cancelled').required(),
+})).messages(validationMessages);
+const staffFields = {
+    ...paginationFields,
+    status: appointmentListSchema.extract('status'),
+    branchId: Joi.string().uuid().optional(), customerId: Joi.string().uuid().optional(),
+    from: bookingSchema.extract('startsAt').optional(), to: bookingSchema.extract('startsAt').optional(),
+};
+const validStaffRange = (value: { from?: string; to?: string }, helpers: Joi.CustomHelpers) => {
+    if (value.from && value.to && Temporal.Instant.compare(value.from, value.to) >= 0) return helpers.error('any.invalid');
+    return value;
+};
+export const doctorAppointmentListSchema = Joi.object(staffFields).unknown(false).custom(validStaffRange).messages(validationMessages);
+export const adminAppointmentListSchema = Joi.object({ ...staffFields, doctorId: Joi.string().uuid().optional() })
+    .unknown(false).custom(validStaffRange).messages(validationMessages);
